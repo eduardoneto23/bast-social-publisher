@@ -19,6 +19,7 @@
     <ProjectReference Include="..\..\src\Bast.Infrastructure\Bast.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Bast.Connectors.YouTube\Bast.Connectors.YouTube.csproj" />
     <ProjectReference Include="..\..\src\Bast.Connectors.Meta\Bast.Connectors.Meta.csproj" />
+    <ProjectReference Include="..\..\src\Bast.Notifications.Telegram\Bast.Notifications.Telegram.csproj" />
   </ItemGroup>
 
 </Project>

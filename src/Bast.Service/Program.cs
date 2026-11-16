@@ -7,6 +7,7 @@ using Bast.Connectors.YouTube;
 using Bast.Domain;
 using Bast.Infrastructure;
 using Bast.Infrastructure.Media;
+using Bast.Notifications.Telegram;
 using Bast.Service;
 using Microsoft.EntityFrameworkCore;
 
@@ -32,7 +33,9 @@ builder.Services.AddYouTubeConnector(builder.Configuration);
 builder.Services.AddMetaConnectors(builder.Configuration);
 builder.Services.AddHostedService<StartupService>();
 builder.Services.AddHostedService<ImportWorker>();
+builder.Services.AddTelegramNotifications();
 builder.Services.AddHostedService<PublishingWorker>();
+builder.Services.AddHostedService<NotificationWorker>();
 
 var app = builder.Build();
 
@@ -262,7 +265,56 @@ app.MapDelete("/api/connect/meta", async (MetaAuth meta, CancellationToken ct) =
     return Results.Ok(new { connected = false });
 });
 
+// Telegram: avisos por um bot do próprio usuário. O token nunca é devolvido pela API.
+app.MapGet("/api/connect/telegram/status", (TelegramBot telegram) => Results.Ok(telegram.Status));
+
+app.MapPut("/api/connect/telegram/token", (TelegramTokenInput input, TelegramBot telegram, CancellationToken ct) =>
+    string.IsNullOrWhiteSpace(input.Token)
+        ? Task.FromResult(Results.BadRequest(new { problems = new[] { "Informe token." } }))
+        : TelegramCallAsync(() => telegram.SaveTokenAsync(input.Token, ct)));
+
+app.MapPost("/api/connect/telegram/link", (TelegramLinkInput input, TelegramBot telegram, CancellationToken ct) =>
+    string.IsNullOrWhiteSpace(input.Code)
+        ? Task.FromResult(Results.BadRequest(new { problems = new[] { "Informe code." } }))
+        : TelegramCallAsync(() => telegram.LinkAsync(input.Code, ct)));
+
+app.MapPost("/api/connect/telegram/test", (TelegramBot telegram, CancellationToken ct) =>
+    TelegramCallAsync(async () =>
+    {
+        var result = await telegram.SendAsync("🔔 Aviso de teste do BAST SOCIAL PUBLISHER.", ct);
+        return new TelegramResult(result.Status == ChannelSendStatus.Sent, result.Error ?? "Aviso de teste enviado.");
+    }));
+
+app.MapDelete("/api/connect/telegram", (TelegramBot telegram) =>
+{
+    telegram.Disconnect();
+    return Results.Ok(new { connected = false });
+});
+
+// Avisos mais recentes e a situação de cada um (enviado, aguardando, descartado).
+app.MapGet("/api/notifications", async (IDbContextFactory<BastDbContext> factory, CancellationToken ct) =>
+{
+    await using var db = await factory.CreateDbContextAsync(ct);
+    return await db.Notifications.AsNoTracking().OrderByDescending(n => n.CreatedAtUtc).Take(50)
+        .Select(n => new { n.Id, n.Kind, n.Text, n.CreatedAtUtc, n.SentAtUtc, n.DiscardedAtUtc, n.Attempts, n.NextAttemptAtUtc, n.LastError })
+        .ToListAsync(ct);
+});
+
 app.Run();
+
+static async Task<IResult> TelegramCallAsync(Func<Task<TelegramResult>> call)
+{
+    try
+    {
+        var result = await call();
+        return Results.Ok(new { ok = result.Ok, message = result.Message });
+    }
+    catch (Exception ex) when (ex is HttpRequestException or IOException or TaskCanceledException)
+    {
+        // Sem a mensagem da exceção: ela pode citar o endereço do pedido, que contém o token do bot.
+        return Results.Ok(new { ok = false, message = "Sem conexão com o Telegram. Tente de novo." });
+    }
+}
 
 static object ToResponse(ScheduleSettings s) => new
 {
@@ -283,3 +335,5 @@ static object ToResponse(ScheduleSettings s) => new
 public sealed record GoogleClientInput(string ClientId, string ClientSecret);
 public sealed record MetaAppInput(string AppId, string AppSecret);
 public sealed record MetaTokenInput(string UserToken, string? PageId);
+public sealed record TelegramTokenInput(string Token);
+public sealed record TelegramLinkInput(string Code);

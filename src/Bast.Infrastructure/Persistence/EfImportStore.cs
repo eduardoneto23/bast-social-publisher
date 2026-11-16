@@ -1,3 +1,4 @@
+using Bast.Application;
 using Bast.Application.Import;
 using Bast.Application.Persistence;
 using Bast.Domain;
@@ -67,6 +68,8 @@ public sealed class EfImportStore(IDbContextFactory<BastDbContext> factory, Time
                 FirstSeenAtUtc = now,
                 LastSeenAtUtc = now,
             });
+            await NotificationOutbox.AddAsync(db, NotificationKind.ImportIssue, null,
+                NotificationOutbox.ImportIssue(folderName, message, movedToPath), now, ct);
         }
         else
         {

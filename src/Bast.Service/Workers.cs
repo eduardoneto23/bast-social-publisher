@@ -35,6 +35,40 @@ public sealed class StartupService(
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }
 
+/// <summary>Entrega os avisos pendentes. Uma falha aqui nunca interfere nas publicações.</summary>
+public sealed class NotificationWorker(NotificationDispatcher dispatcher, ILogger<NotificationWorker> logger) : BackgroundService
+{
+    private static readonly TimeSpan Interval = TimeSpan.FromSeconds(5);
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                await dispatcher.RunCycleAsync(stoppingToken);
+                await Task.Delay(Interval, stoppingToken);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                logger.LogError("Falha ao entregar avisos ({Type}); nova tentativa no próximo ciclo.", ex.GetType().Name);
+                try
+                {
+                    await Task.Delay(Interval, stoppingToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+            }
+        }
+    }
+}
+
 /// <summary>Ciclo do motor: agenda, publica o que venceu, confirma pendências e ajusta as pastas.</summary>
 public sealed class PublishingWorker(PublishingEngine engine, BastOptions options, ILogger<PublishingWorker> logger) : BackgroundService
 {

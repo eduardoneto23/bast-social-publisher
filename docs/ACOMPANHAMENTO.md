@@ -121,3 +121,16 @@ Cenários da seção 12 cobertos por teste automatizado: 1, 2, 3, 4, 8 (falha pa
 - Pendente: icone do app nao sobe no painel (erro generico da Meta); modo Ao vivo; conferir visibilidade dos Reels em modo de desenvolvimento; mensagem do connect-meta.ps1 diz "token recusado" quando o erro e da chave secreta.
 - Novo: scripts/check-meta-secret.ps1; site/privacidade.html com Meta e exclusao de dados (copia publica ainda nao atualizada); site/icone-1024.*
 
+
+## 2026-11-16 - Avisos pelo Telegram
+
+- Fila de avisos no banco (tabela notifications, migracao Notifications): o aviso e gravado na mesma transacao do fato e entregue por outro ciclo (NotificationWorker, a cada 5 s).
+- Avisos: video finalizado (um por video, com links e motivos), envio sem confirmacao, conta precisa reconectar, pasta com problema.
+- Novo projeto Bast.Notifications.Telegram (Bot API oficial): token validado por getMe, conversa vinculada por codigo via getUpdates, sendMessage em texto puro.
+- Sem canal conectado os avisos sao descartados; aviso nao entregue em 24 h e descartado; novas tentativas com espera crescente.
+- Endpoints: /api/connect/telegram/status|token|link|test, DELETE /api/connect/telegram, /api/notifications. Script scripts/connect-telegram.ps1. Guia docs/CONECTAR-TELEGRAM.md.
+- Mensagem da conexao da Meta agora distingue chave secreta recusada de token recusado.
+- 140 testes passando. Nao exercitado contra o Telegram real ate a primeira conexao.
+
+- Telegram real conectado em 2026-11-16: vinculo por codigo, aviso de teste e aviso de pasta com problema entregues. Servico instalado atualizado.
+

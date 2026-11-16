@@ -46,6 +46,7 @@ public sealed class PublishingEngine(
             publication.LastError = "O serviço foi interrompido durante o envio; o resultado não pôde ser confirmado.";
             publication.NextRetryAtUtc = null;
             publication.TransitionTo(PublicationState.Unknown, now);
+            await NotifyUnknownAsync(db, publication.Video!, publication, ct);
             logger.LogWarning("{Folder} em {Platform}: envio interrompido, resultado incerto. Será reconciliado com a plataforma.",
                 publication.Video!.FolderName, publication.Platform);
         }
@@ -171,9 +172,14 @@ public sealed class PublishingEngine(
         }
 
         Apply(publication, attempt, outcome, settings, fromCheck: false);
+        if (publication.State == PublicationState.Unknown) await NotifyUnknownAsync(db, video, publication, ct);
         await db.SaveChangesAsync(ct);
         Log(video, publication);
     }
+
+    private Task NotifyUnknownAsync(BastDbContext db, Video video, Publication publication, CancellationToken ct) =>
+        NotificationOutbox.AddAsync(db, NotificationKind.PublicationUnknown, $"publication:{publication.Id}:unknown",
+            NotificationOutbox.PublicationUnknown(video, publication), Now, ct);
 
     /// <summary>Consulta a plataforma sobre publicações em processamento ou de resultado incerto.</summary>
     private async Task ConfirmPendingAsync(ScheduleSettings settings, CancellationToken ct)
@@ -305,6 +311,11 @@ public sealed class PublishingEngine(
                 : video.Publications.Any(p => p.State == PublicationState.Published) ? VideoState.Published
                 : VideoState.Archived;
             video.UpdatedAtUtc = now;
+            if (NotificationOutbox.VideoFinished(video) is { } summary)
+            {
+                await NotificationOutbox.AddAsync(db, NotificationKind.VideoFinished, $"video:{video.Id}:finished", summary, now, ct);
+            }
+
             logger.LogInformation("{Folder} finalizado: {State} ({Summary}).", video.FolderName, video.State,
                 string.Join(", ", video.Publications.OrderBy(p => p.Platform).Select(p => $"{p.Platform}: {p.State}")));
         }

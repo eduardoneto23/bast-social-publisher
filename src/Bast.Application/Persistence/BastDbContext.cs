@@ -12,6 +12,7 @@ public sealed class BastDbContext(DbContextOptions<BastDbContext> options) : DbC
     public DbSet<ImportIssue> ImportIssues => Set<ImportIssue>();
     public DbSet<ScheduleSettings> ScheduleSettings => Set<ScheduleSettings>();
     public DbSet<PlatformAccount> PlatformAccounts => Set<PlatformAccount>();
+    public DbSet<Notification> Notifications => Set<Notification>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -71,6 +72,16 @@ public sealed class BastDbContext(DbContextOptions<BastDbContext> options) : DbC
             e.HasKey(a => a.Platform);
             e.Property(a => a.Platform).HasConversion<string>().HasMaxLength(20);
             e.Property(a => a.Status).HasConversion<string>().HasMaxLength(20);
+        });
+
+        modelBuilder.Entity<Notification>(e =>
+        {
+            e.ToTable("notifications");
+            e.HasKey(n => n.Id);
+            e.Property(n => n.Kind).HasConversion<string>().HasMaxLength(30);
+            e.Property(n => n.DedupKey).HasMaxLength(100);
+            e.HasIndex(n => n.DedupKey).IsUnique();
+            e.HasIndex(n => new { n.SentAtUtc, n.DiscardedAtUtc, n.CreatedAtUtc });
         });
 
         modelBuilder.Entity<ScheduleSettings>(e =>

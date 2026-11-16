@@ -9,10 +9,12 @@ Você prepara o vídeo, escreve a legenda em um arquivo de texto, coloca tudo em
 | Rede | Situação |
 |---|---|
 | YouTube | Funcionando (vídeos e Shorts), pela API oficial |
-| Instagram | Implementado (Reels); ainda sem teste com a API real. Ver [docs/CONECTAR-META.md](docs/CONECTAR-META.md) |
-| Facebook | Implementado (Reels de Página); ainda sem teste com a API real |
+| Instagram | Funcionando (Reels), pela API oficial. Ver [docs/CONECTAR-META.md](docs/CONECTAR-META.md) |
+| Facebook | Funcionando (Reels de Página), pela API oficial |
 | Threads | Planejado |
 | TikTok | A API oficial não permite publicação pública automática para ferramenta de uso próprio; ver [docs/APIS.md](docs/APIS.md) |
+
+Avisos de publicação, falha e reconexão podem chegar no seu celular por um bot do Telegram: ver [docs/CONECTAR-TELEGRAM.md](docs/CONECTAR-TELEGRAM.md).
 
 Ainda não existe painel visual: o acompanhamento é feito por endereços no navegador e por scripts, descritos abaixo. O andamento do projeto está em [docs/ACOMPANHAMENTO.md](docs/ACOMPANHAMENTO.md).
 

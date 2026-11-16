@@ -40,12 +40,28 @@ public sealed class AccountService(IDbContextFactory<BastDbContext> factory, Tim
             account.LastError = null;
         }, ct);
 
-    public Task SetNeedsReauthAsync(Platform platform, string error, CancellationToken ct) =>
-        UpsertAsync(platform, account =>
+    public async Task SetNeedsReauthAsync(Platform platform, string error, CancellationToken ct)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var account = await db.PlatformAccounts.FirstOrDefaultAsync(a => a.Platform == platform, ct);
+        if (account is null)
         {
-            account.Status = AccountStatus.NeedsReauth;
-            account.LastError = error;
-        }, ct);
+            account = new PlatformAccount { Platform = platform };
+            db.PlatformAccounts.Add(account);
+        }
+
+        // Avisa só na mudança de situação, não a cada pedido recusado.
+        if (account.Status != AccountStatus.NeedsReauth)
+        {
+            await NotificationOutbox.AddAsync(db, NotificationKind.AccountNeedsReauth, null,
+                NotificationOutbox.AccountNeedsReauth(platform, error), Now, ct);
+        }
+
+        account.Status = AccountStatus.NeedsReauth;
+        account.LastError = error;
+        account.UpdatedAtUtc = Now;
+        await db.SaveChangesAsync(ct);
+    }
 
     public Task SetDisconnectedAsync(Platform platform, CancellationToken ct) =>
         UpsertAsync(platform, account =>

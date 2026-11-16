@@ -489,3 +489,6 @@ client_secret*.json
 *.db-wal
 publish/
 service-test.log
+
+# A regra *.meta (arquivos do Visual Studio) nao pode esconder o conector da Meta.
+!src/Bast.Connectors.Meta/
