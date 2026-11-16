@@ -2,7 +2,7 @@
 
 Os dois usam o mesmo aplicativo da Meta e a mesma conexão. O sistema publica **Reels** em uma **Página do Facebook** e na **conta profissional do Instagram** vinculada a essa Página.
 
-> Estado: os conectores estão implementados e testados contra um servidor falso que segue a documentação oficial. **Ainda não foram exercitados contra a API real.** Os nomes de menus do painel da Meta abaixo foram escritos de memória e podem estar diferentes.
+> Estado: primeiro envio real feito em 16/11/2026, com um vídeo de teste de 6 segundos: Reel publicado no Facebook em cerca de 40 segundos e no Instagram em cerca de 1 minuto e 40, uma tentativa em cada rede, com o app em modo de desenvolvimento. Ainda não exercitados contra a API real: retomada de upload interrompido, limites de uso e token recusado. Os nomes de menus do painel da Meta abaixo foram escritos de memória e podem estar diferentes.
 
 ## Antes de começar
 
@@ -63,11 +63,23 @@ Vídeo fora desses limites é barrado antes do horário só para aquela rede; as
 
 Troca de senha, remoção do app ou perda de função na Página invalidam o token. O sistema marca Facebook e Instagram como "precisa reconectar", segura as publicações sem gastar tentativas e retoma quando você rodar o script de novo com um token novo.
 
-## O que falta confirmar no primeiro uso real
+## Dicas do painel da Meta
 
-- Se um app em modo Ao vivo, sem revisão da Meta, publica para as suas próprias contas com conteúdo visível ao público.
-- Se as chamadas do Instagram aceitam o token da Página (a documentação cita token de Página em um trecho e de usuário em outro).
-- O formato real do link (`permalink_url`) devolvido para Reels do Facebook.
+- Na criação do app, marque só os casos de uso **Gerenciar tudo na sua Página** e **Gerenciar mensagens e conteúdo no Instagram**. Marcar os outros faz o painel pedir verificação de empresa e análise do app, que não são necessárias para publicar nas próprias contas.
+- `pages_manage_posts` e `instagram_content_publish` só aparecem no Explorador depois de adicionadas dentro de cada caso de uso (**Casos de uso > Personalizar**).
+- A chave secreta tem 32 caracteres (números e letras de a a f) e fica em **Configurações do app > Básico > Mostrar**. Não confunda com a chave do app do Threads, na mesma tela. Para conferir sem conectar: `scripts\check-meta-secret.ps1`.
+- A autenticação de dois fatores exigida pela Meta é ativada pela Central de Contas (accountscenter.facebook.com); a tela antiga aberta pelo painel pode dar erro.
+
+## Confirmado no primeiro uso real
+
+- As chamadas do Instagram aceitam o token da Página.
+- O Facebook devolve o link no formato `https://www.facebook.com/reel/<id>/`.
+- Em modo de desenvolvimento, o administrador do app consegue conectar e publicar.
+
+## O que falta confirmar
+
+- Quem enxerga os Reels publicados com o app em modo de desenvolvimento.
+- Se o modo Ao vivo é liberado sem verificação de empresa.
 
 ## Desconectar
 

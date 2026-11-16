@@ -112,3 +112,12 @@ Cenários da seção 12 cobertos por teste automatizado: 1, 2, 3, 4, 8 (falha pa
 3. Tela de configurações da agenda e das redes.
 4. Controles: pausar, retomar, reagendar, cancelar, tentar de novo, publicar a próxima, abrir pasta.
 5. Problemas de importação com ação de dispensar.
+
+## 2026-11-16 - Primeiro envio real na Meta
+
+- Facebook (Pagina) e Instagram conectados pelo token do Explorador; app da Meta ainda em modo de desenvolvimento.
+- Video de teste vertical de 6 s publicado nas duas redes, uma tentativa cada: Facebook confirmado em ~40 s, Instagram em ~1 min 40 s. Pasta foi para 04 - ENVIADOS.
+- Confirmado: Instagram aceita o token da Pagina; link do Facebook vem como /reel/<id>/.
+- Pendente: icone do app nao sobe no painel (erro generico da Meta); modo Ao vivo; conferir visibilidade dos Reels em modo de desenvolvimento; mensagem do connect-meta.ps1 diz "token recusado" quando o erro e da chave secreta.
+- Novo: scripts/check-meta-secret.ps1; site/privacidade.html com Meta e exclusao de dados (copia publica ainda nao atualizada); site/icone-1024.*
+
