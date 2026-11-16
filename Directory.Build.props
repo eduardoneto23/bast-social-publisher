@@ -1,0 +1,12 @@
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <!-- Versões fixadas na linha 10.0 (o SDK instalado é .NET 10). -->
+    <EfVersion>10.0.15</EfVersion>
+    <ExtensionsVersion>10.0.15</ExtensionsVersion>
+  </PropertyGroup>
+</Project>
