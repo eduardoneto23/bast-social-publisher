@@ -34,6 +34,15 @@ Levantamento feito na documentação oficial em 2026-11-14. Reverificar cada ite
 - `POST /{page-id}/video_reels` com `upload_phase=start`, upload, depois `upload_phase=finish` com `video_state=PUBLISHED`.
 - Só Páginas; perfis pessoais não são suportados.
 
+## Meta: autenticação e modos do app
+
+- Redirecionamento OAuth precisa ser HTTPS e estar registrado; "Strict Mode" é obrigatório. Por isso o sistema usa um token gerado no Explorador da Graph API.
+- Token de usuário de longa duração: cerca de 60 dias. Token de Página obtido a partir dele: "do not have an expiration date", podendo ser invalidado em certas condições.
+- Modo de desenvolvimento: "Any data generated while an app is in Development mode, such as test posts, can only be seen by role users."
+- Erros: 190 e 102 (token), 10 e 200 a 299 (permissão), 4, 17, 341 e 613 (limite), 1 e 2 (temporários).
+- Reels do Facebook: retomada do upload pelo `uploading_phase.bytes_transfered` do estado do vídeo.
+- Instagram: consultar o contêiner uma vez por minuto, por até 5 minutos; contêiner expira em 24 h.
+
 ## Threads
 
 - `POST /{user-id}/threads` com `media_type=VIDEO` e `video_url`, aguardar processamento, `POST /{user-id}/threads_publish`.
@@ -48,8 +57,9 @@ Levantamento feito na documentação oficial em 2026-11-14. Reverificar cada ite
 
 ## Não verificado
 
-- Validade e renovação dos tokens da Meta, Threads e TikTok.
-- Se o app Meta precisa estar em modo "Live" para os posts ficarem visíveis ao público.
+- Validade e renovação dos tokens do Threads e do TikTok.
+- Se um app da Meta em modo Ao vivo, só com acesso padrão, publica conteúdo público para contas de quem tem função no app.
+- Qual token as chamadas do Instagram exigem (a documentação cita Página e usuário).
 - Endpoint e valores de status do contêiner do Threads.
 
 ## Fontes

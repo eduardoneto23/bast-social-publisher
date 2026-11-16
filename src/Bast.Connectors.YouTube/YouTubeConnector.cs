@@ -386,7 +386,9 @@ public static class YouTubeServiceCollectionExtensions
         services.Configure<YouTubeOptions>(configuration.GetSection(YouTubeOptions.SectionName));
         services.AddHttpClient(GoogleAuth.HttpClientName, client => client.Timeout = TimeSpan.FromMinutes(10))
             // 308 é a resposta normal de bloco recebido; não pode ser tratada como redirecionamento.
-            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false })
+            // Sem log de pedidos HTTP: o endereço da sessão de upload não deve ir para os logs.
+            .RemoveAllLoggers();
         services.AddSingleton<GoogleAuth>();
         services.AddSingleton<YouTubeConnector>();
         services.AddSingleton<IPlatformConnector>(sp => sp.GetRequiredService<YouTubeConnector>());

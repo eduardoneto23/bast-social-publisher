@@ -9,8 +9,8 @@ Você prepara o vídeo, escreve a legenda em um arquivo de texto, coloca tudo em
 | Rede | Situação |
 |---|---|
 | YouTube | Funcionando (vídeos e Shorts), pela API oficial |
-| Instagram | Planejado |
-| Facebook | Planejado |
+| Instagram | Implementado (Reels); ainda sem teste com a API real. Ver [docs/CONECTAR-META.md](docs/CONECTAR-META.md) |
+| Facebook | Implementado (Reels de Página); ainda sem teste com a API real |
 | Threads | Planejado |
 | TikTok | A API oficial não permite publicação pública automática para ferramenta de uso próprio; ver [docs/APIS.md](docs/APIS.md) |
 

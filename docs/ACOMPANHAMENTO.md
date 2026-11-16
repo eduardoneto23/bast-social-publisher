@@ -9,7 +9,7 @@ Atualizado em 2026-11-14. Este arquivo é o ponto de retomada entre sessões de 
 | 1. Fundação | Concluída; falta só o teste de reinicialização real do Windows |
 | 2. Gerenciamento (fila, legendas por rede, agendador, pastas) | Concluída |
 | 3. Interface | Não iniciada |
-| 4. YouTube, Instagram, Facebook | YouTube funcionando com a API real (primeiro envio em 2026-11-16); Instagram e Facebook não iniciados |
+| 4. YouTube, Instagram, Facebook | YouTube funcionando com a API real. Instagram e Facebook implementados, **sem teste com a API real** |
 | 5. Threads e TikTok | Não iniciada |
 | 6. Confiabilidade | Parte antecipada na Etapa 2 (ver abaixo) |
 | 7. Nuvem | Não iniciada |
@@ -52,9 +52,18 @@ Atualizado em 2026-11-14. Este arquivo é o ponto de retomada entre sessões de 
 - **API:** `/api/accounts`, `/api/connect/youtube/credentials`, `/start`, `/status` e `DELETE /api/connect/youtube`.
 - `scripts/connect-youtube.ps1` para conectar a conta enquanto o painel não existe.
 
+## Concluído na Etapa 4: Instagram e Facebook (sem teste real)
+
+- **Autenticação da Meta** (`MetaAuth`): o usuário gera um token no Explorador da Graph API; o sistema troca por um de longa duração e guarda o token da Página (sem data de expiração) e o id do Instagram vinculado. O fluxo OAuth com redirecionamento local não foi usado porque a Meta exige endereço HTTPS registrado.
+- Tokens e segredos vão sempre no cabeçalho ou no corpo do pedido, nunca no endereço. O log de pedidos HTTP foi desligado para os clientes da Meta e do Google.
+- **Facebook** (`FacebookConnector`): Reels de Página em três fases, com retomada pelos bytes que a Meta guardou e confirmação por `publish_status = published`.
+- **Instagram** (`InstagramConnector`): contêiner, upload direto, espera do processamento e `media_publish` feito uma única vez por contêiner.
+- Erro 190/102 ou de permissão interrompe as duas integrações e marca as contas como "precisa reconectar".
+- **API:** `/api/connect/meta/credentials`, `/token`, `/status` e `DELETE /api/connect/meta`. Script `scripts/connect-meta.ps1`. Guia em `docs/CONECTAR-META.md`.
+
 ## Como foi verificado
 
-- `dotnet test`: 94 testes automatizados, todos passando. Os do YouTube usam um servidor HTTP falso; **não há teste contra a API real**.
+- `dotnet test`: 114 testes automatizados, todos passando. Os dos conectores usam servidores HTTP falsos; contra a API real só o YouTube foi exercitado.
 - `scripts/e2e-etapa1.ps1`: 17 verificações de importação com o serviço real.
 - `scripts/e2e-etapa2.ps1`: 22 verificações com o serviço real em modo de simulação: agenda de 1 em 1 minuto, pausa, legenda longa barrada no Threads, um vídeo por horário, encerramento forçado no meio da fila, 12 publicações com uma tentativa cada, falha parcial em `05 - ERROS`.
 - `scripts/test-service.ps1`: serviço instalado, reinício automático após queda.
@@ -62,6 +71,12 @@ Atualizado em 2026-11-14. Este arquivo é o ponto de retomada entre sessões de 
 Cenários da seção 12 cobertos por teste automatizado: 1, 2, 3, 4, 8 (falha parcial), 9 (publicação duplicada), 10 (operação incerta), 12 (desligamento durante publicação), 13 (retomada). Parcial: 5 (reinício do processo, não do Windows). Também cobertos, só contra servidor falso: 6 (queda de internet durante o upload) e 7 (token expirado ou revogado). Pendentes: 11 (execução simultânea), 14 (backup).
 
 ## Pendências
+
+- **Primeiro envio real no Facebook e no Instagram.** Depende de o usuário criar o aplicativo da Meta e conectar. Pontos a confirmar no teste: visibilidade pública com app em modo Ao vivo sem revisão, aceitação do token da Página nas chamadas do Instagram e formato do link do Reel do Facebook.
+- Instagram: se a resposta do `media_publish` se perder e o contêiner nunca passar a `PUBLISHED`, a publicação fica em `UNKNOWN` até intervenção. Falta a reconciliação pela lista de mídias recentes.
+- Instagram: uma publicação em `PROCESSING` é concluída mesmo com a fila pausada, porque o envio já tinha começado.
+- Facebook: vídeos acima de 90 s são barrados; publicar como vídeo comum de Página ainda não existe.
+- Serviço instalado atualizado em 2026-11-16 com os conectores da Meta (8 verificações passaram). Contas da Meta ainda não conectadas.
 
 - **Primeiro upload real feito em 2026-11-16:** vídeo de teste de 6 s, privado. Percurso observado: `Scheduled` no horário, `Uploading`, sessão gravada, `Processing` com o id do vídeo, `Published` 24 s depois, pasta em `04 - ENVIADOS`, uma tentativa. Os escopos `youtube.upload` e `youtube.readonly` bastaram para enviar e consultar o estado.
 - **Ainda não exercitado contra a API real:** retomada após queda de rede, upload em vários blocos (o teste coube em um bloco), cota esgotada, token recusado e thumbnail.

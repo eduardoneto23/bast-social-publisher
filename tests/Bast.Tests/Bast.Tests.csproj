@@ -18,6 +18,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Bast.Infrastructure\Bast.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Bast.Connectors.YouTube\Bast.Connectors.YouTube.csproj" />
+    <ProjectReference Include="..\..\src\Bast.Connectors.Meta\Bast.Connectors.Meta.csproj" />
   </ItemGroup>
 
 </Project>

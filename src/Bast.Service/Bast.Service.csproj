@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Bast.Infrastructure\Bast.Infrastructure.csproj" />
     <ProjectReference Include="..\Bast.Connectors.YouTube\Bast.Connectors.YouTube.csproj" />
+    <ProjectReference Include="..\Bast.Connectors.Meta\Bast.Connectors.Meta.csproj" />
   </ItemGroup>
 
   <ItemGroup>
