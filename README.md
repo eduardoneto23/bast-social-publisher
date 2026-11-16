@@ -46,7 +46,7 @@ Feche e abra o PowerShell de novo. Descubra onde o ffmpeg foi instalado e guarde
 ### 2. Baixar o projeto
 
 ```powershell
-git clone <endereço-do-repositório> bast-social-publisher
+git clone https://github.com/eduardoneto23/bast-social-publisher.git
 cd bast-social-publisher
 dotnet test
 ```
