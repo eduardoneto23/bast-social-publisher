@@ -134,3 +134,14 @@ Cenários da seção 12 cobertos por teste automatizado: 1, 2, 3, 4, 8 (falha pa
 
 - Telegram real conectado em 2026-11-16: vinculo por codigo, aviso de teste e aviso de pasta com problema entregues. Servico instalado atualizado.
 
+
+## 2026-11-16 - Painel (Etapa 3)
+
+- Pagina estatica em src/Bast.Service/wwwroot (index.html, styles.css, app.js), sem bibliotecas externas, servida em http://127.0.0.1:5080/ e atualizada a cada 5 s.
+- Secoes: Visao geral, Fila (cancelar), Historico, Problemas, Contas (teste do Telegram), Agenda (editar e salvar), Avisos. Botao de pausar/retomar no topo.
+- Conexao de contas continua pelos scripts: credenciais nao passam pelo navegador.
+- LocalRequestGuard: a API recusa pedidos de outras origens (pagina de terceiros no navegador) e de nomes de host que nao sejam 127.0.0.1/localhost. Cabecalhos CSP default-src 'self', sem iframe.
+- Testado no navegador contra instancia isolada em simulacao: abas, cancelar, pausar, agenda com erro de validacao e com sucesso. 157 testes automaticos.
+- Publicar agora: POST /api/videos/{id}/publish-now e botao na Fila. So adianta o horario do video; o envio continua sendo do motor (respeita pausa, nao duplica). Os demais videos mantem o horario. Usado em um envio real nas tres redes (uma tentativa em cada); o botao do painel em si nao foi clicado. 158 testes automaticos.
+- Nao feito no painel: repetir manualmente uma publicacao que falhou, conectar contas, ver legenda/miniatura do video, paginacao do historico (mostra os 100 mais recentes).
+

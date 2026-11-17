@@ -39,6 +39,33 @@ builder.Services.AddHostedService<NotificationWorker>();
 
 var app = builder.Build();
 
+// Recusa pedidos que não partiram do próprio painel nem de um script local (ver LocalRequestGuard).
+app.Use(async (context, next) =>
+{
+    var headers = context.Request.Headers;
+    if (!LocalRequestGuard.IsAllowed(context.Request.Method, headers.Host.ToString(),
+            headers.TryGetValue("Origin", out var origin) ? origin.ToString() : null,
+            headers.TryGetValue("Sec-Fetch-Site", out var site) ? site.ToString() : null))
+    {
+        context.Response.StatusCode = StatusCodes.Status403Forbidden;
+        await context.Response.WriteAsJsonAsync(new { problems = new[] { "Pedido recusado: a API só aceita o painel local e scripts deste computador." } });
+        return;
+    }
+
+    // O painel não carrega nada de fora e não pode ser embutido em outra página.
+    context.Response.Headers["Content-Security-Policy"] = "default-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
+    context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+    context.Response.Headers["Referrer-Policy"] = "no-referrer";
+    await next();
+});
+
+// Painel: página estática em wwwroot, servida em http://127.0.0.1:5080/
+app.UseDefaultFiles();
+app.UseStaticFiles(new StaticFileOptions
+{
+    OnPrepareResponse = file => file.Context.Response.Headers.CacheControl = "no-cache",
+});
+
 app.MapGet("/api/health", async (IDbContextFactory<BastDbContext> factory, Workspace workspace, MediaTools tools,
     IConnectorRegistry registry, SchedulingService scheduling, CancellationToken ct) =>
 {
@@ -159,6 +186,12 @@ app.MapPost("/api/videos/{id:guid}/cancel", async (Guid id, QueueCommands comman
     return result is null
         ? Results.NotFound()
         : Results.Ok(new { cancelled = result.Value.Cancelled, notCancellable = result.Value.NotCancellable });
+});
+
+app.MapPost("/api/videos/{id:guid}/publish-now", async (Guid id, QueueCommands commands, CancellationToken ct) =>
+{
+    var moved = await commands.PublishNowAsync(id, ct);
+    return moved is null ? Results.NotFound() : Results.Ok(new { publications = moved.Value });
 });
 
 // Contas: situação de cada rede. Tokens e segredos nunca são devolvidos pela API.

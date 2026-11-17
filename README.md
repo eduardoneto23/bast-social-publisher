@@ -16,7 +16,7 @@ Você prepara o vídeo, escreve a legenda em um arquivo de texto, coloca tudo em
 
 Avisos de publicação, falha e reconexão podem chegar no seu celular por um bot do Telegram: ver [docs/CONECTAR-TELEGRAM.md](docs/CONECTAR-TELEGRAM.md).
 
-Ainda não existe painel visual: o acompanhamento é feito por endereços no navegador e por scripts, descritos abaixo. O andamento do projeto está em [docs/ACOMPANHAMENTO.md](docs/ACOMPANHAMENTO.md).
+O painel fica em http://127.0.0.1:5080/ e mostra a fila, o histórico, os problemas, as contas, a agenda e os avisos. Dá para pausar a fila, cancelar um vídeo, publicar um vídeo agendado na hora e mudar a agenda por ele. A conexão das contas continua sendo feita pelos scripts, para que senhas e tokens nunca passem pelo navegador. O andamento do projeto está em [docs/ACOMPANHAMENTO.md](docs/ACOMPANHAMENTO.md).
 
 ## O que você precisa
 
@@ -186,7 +186,12 @@ Invoke-RestMethod http://127.0.0.1:5080/api/queue/resume -Method Post
 
 # Cancelar um vídeo ainda não publicado (o id aparece em /api/queue)
 Invoke-RestMethod http://127.0.0.1:5080/api/videos/ID-DO-VIDEO/cancel -Method Post
+
+# Publicar agora um vídeo agendado, sem esperar o horário
+Invoke-RestMethod http://127.0.0.1:5080/api/videos/ID-DO-VIDEO/publish-now -Method Post
 ```
+
+Os mesmos controles estão no painel, na aba Fila.
 
 ## Regras que o programa segue
 

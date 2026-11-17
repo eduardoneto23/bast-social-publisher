@@ -91,4 +91,32 @@ public sealed class QueueCommands(IDbContextFactory<BastDbContext> factory, Sche
         await db.SaveChangesAsync(ct);
         return (cancelled, blocked);
     }
+
+    /// <summary>
+    /// Antecipa para agora as publicações do vídeo que ainda aguardam o horário. Quem envia continua
+    /// sendo o motor, no próximo ciclo, com as mesmas regras de sempre (pausa, tentativas, sem duplicar).
+    /// </summary>
+    /// <returns>Nulo se o vídeo não existe; senão, quantas publicações foram antecipadas.</returns>
+    public async Task<int?> PublishNowAsync(Guid videoId, CancellationToken ct)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var video = await db.Videos.Include(v => v.Publications).FirstOrDefaultAsync(v => v.Id == videoId, ct);
+        if (video is null) return null;
+        if (video.State != VideoState.Ready) return 0;
+
+        var now = Now;
+        var waiting = video.Publications.Where(p => p.State == PublicationState.Scheduled).ToList();
+        if (waiting.Count == 0) return 0;
+
+        foreach (var publication in waiting)
+        {
+            publication.ScheduledAtUtc = now;
+            publication.UpdatedAtUtc = now;
+        }
+
+        video.ScheduledAtUtc = now;
+        video.UpdatedAtUtc = now;
+        await db.SaveChangesAsync(ct);
+        return waiting.Count;
+    }
 }

@@ -570,6 +570,29 @@ public class PublishingEngineTests
     }
 
     [Fact]
+    public async Task Publish_now_sends_only_that_video_and_keeps_the_others_on_schedule()
+    {
+        using var h = await ScheduledAsync("Video 1", "Video 2");
+        var second = h.Video("Video 2");
+        var firstSlot = h.Video("Video 1").ScheduledAtUtc;
+
+        Assert.Equal(4, await h.Commands.PublishNowAsync(second.Id, default));
+        await h.CycleAsync();
+        await h.CycleAsync();
+
+        Assert.Equal(4, h.TotalPublishCalls);
+        Assert.Equal(VideoState.Published, h.Video("Video 2").State);
+        Assert.Equal(VideoState.Ready, h.Video("Video 1").State);
+        Assert.Equal(firstSlot, h.Video("Video 1").ScheduledAtUtc);
+
+        // Pedir de novo não reenvia o que já saiu.
+        Assert.Equal(0, await h.Commands.PublishNowAsync(second.Id, default));
+        await h.CycleAsync();
+        Assert.Equal(4, h.TotalPublishCalls);
+        Assert.Null(await h.Commands.PublishNowAsync(Guid.NewGuid(), default));
+    }
+
+    [Fact]
     public async Task Cancelled_video_is_never_published_and_goes_to_archived()
     {
         using var h = await ScheduledAsync("Video 1", "Video 2");

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BAST Social Publisher</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">B</span>
+      <div>
+        <h1>BAST Social Publisher</h1>
+        <p id="health-line" class="muted">Carregando…</p>
+      </div>
+    </div>
+    <div class="top-actions">
+      <span id="pause-state" class="pill"></span>
+      <button id="pause-button" class="button" type="button" hidden></button>
+    </div>
+  </header>
+
+  <nav class="tabs" aria-label="Seções">
+    <button type="button" data-tab="overview" class="tab">Visão geral</button>
+    <button type="button" data-tab="queue" class="tab">Fila <span id="count-queue" class="count"></span></button>
+    <button type="button" data-tab="history" class="tab">Histórico</button>
+    <button type="button" data-tab="problems" class="tab">Problemas <span id="count-problems" class="count"></span></button>
+    <button type="button" data-tab="accounts" class="tab">Contas</button>
+    <button type="button" data-tab="schedule" class="tab">Agenda</button>
+    <button type="button" data-tab="notifications" class="tab">Avisos</button>
+  </nav>
+
+  <div id="banner" class="banner" role="status" hidden></div>
+
+  <main>
+    <section id="tab-overview" class="panel" hidden></section>
+    <section id="tab-queue" class="panel" hidden></section>
+    <section id="tab-history" class="panel" hidden></section>
+    <section id="tab-problems" class="panel" hidden></section>
+    <section id="tab-accounts" class="panel" hidden></section>
+    <section id="tab-schedule" class="panel" hidden></section>
+    <section id="tab-notifications" class="panel" hidden></section>
+  </main>
+
+  <footer class="muted">
+    <span id="updated"></span>
+    <span>Este painel só funciona neste computador.</span>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
