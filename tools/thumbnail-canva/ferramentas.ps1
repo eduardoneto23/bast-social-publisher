@@ -18,6 +18,9 @@ function Test-InUse($files) {
     return $false
 }
 
+# Imagem de referência que o usuário põe na pasta (referencia.png/.jpg): não é a thumbnail.
+function Test-Reference($file) { return [IO.Path]::GetFileNameWithoutExtension($file.Name) -match '^refer[eê]ncia$' }
+
 # Localiza ffmpeg/ffprobe: parâmetro, depois appsettings.Local.json do serviço, depois o PATH.
 function Resolve-Tool([string]$Given, [string]$SettingName, [string]$Command) {
     if ($Given) { return $Given }

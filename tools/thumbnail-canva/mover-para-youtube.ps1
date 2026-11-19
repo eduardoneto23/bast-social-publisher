@@ -31,8 +31,15 @@ foreach ($dir in $candidates) {
     if ($files | Where-Object { $_.Name -ieq 'THUMB-ERRO.txt' }) { continue }
     $videos = @($files | Where-Object { $videoExt -contains $_.Extension.ToLower() })
     $texts = @($files | Where-Object { $_.Extension -ieq '.txt' })
-    $images = @($files | Where-Object { $imageExt -contains $_.Extension.ToLower() })
+    $images = @($files | Where-Object { $imageExt -contains $_.Extension.ToLower() -and -not (Test-Reference $_) })
     if ($videos.Count -ne 1 -or $texts.Count -lt 1 -or $images.Count -lt 1) { continue }
+
+    # Com a referência na pasta, o BAST só acha a thumbnail certa se ela se chamar thumbnail.*.
+    $hasReference = @($files | Where-Object { $imageExt -contains $_.Extension.ToLower() -and (Test-Reference $_) }).Count -gt 0
+    if ($hasReference -and -not ($images | Where-Object { [IO.Path]::GetFileNameWithoutExtension($_.Name) -ieq 'thumbnail' })) {
+        "AVISO: $($dir.Name) não foi movida: com referencia na pasta, a thumbnail precisa se chamar thumbnail.png ou thumbnail.jpg."
+        continue
+    }
 
     if (-not $Folder) {
         $newest = ($files | Measure-Object LastWriteTimeUtc -Maximum).Maximum

@@ -29,6 +29,16 @@ Se a pasta tiver só o vídeo, o nome do arquivo vira o título de trabalho (ex.
 - **Validação:** `salvar-legenda.ps1` confere tudo isso antes de gravar e nunca sobrescreve um `.txt` que você colocou.
 - **Sem revisão:** a legenda vai para o ar sem revisão. Se quiser controlar o texto, coloque o seu `legenda.txt` na pasta.
 
+## Imagem de referência
+
+Para escolher você mesmo o momento da thumbnail, coloque na pasta uma imagem chamada `referencia.png` (ou `.jpg`). Pode ser um print do vídeo, mesmo pequeno ou comprimido.
+
+- **Como funciona:** `achar-referencia.ps1` procura esse momento no vídeo e tira o quadro em qualidade cheia.
+- **Precisão:** no teste, um print de 640x360 em baixa qualidade foi achado no segundo exato de um vídeo de 6 minutos, em cerca de 20 s.
+- **Se não achar:** quando a imagem não é do vídeo, ou foi recortada ou editada, a tarefa usa a própria imagem.
+- **Webcam:** é coberta do mesmo jeito.
+- **A referência continua na pasta:** ela vai junto para `01 - ENVIAR YOUTUBE`, e o BAST usa a `thumbnail.png`. Se a pasta tiver a referência e uma thumbnail sua, a sua precisa se chamar `thumbnail.png` ou `thumbnail.jpg`.
+
 ## Se der errado
 
 - Quando uma pasta não dá certo, ela fica em `00 - THUMB` com um `THUMB-ERRO.txt` explicando o motivo e não é tentada de novo. Corrija e apague esse arquivo para tentar outra vez.

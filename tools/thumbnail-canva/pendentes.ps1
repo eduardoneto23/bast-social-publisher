@@ -3,6 +3,7 @@
   um vídeo sem thumbnail, ou sem .txt (temThumbnail = true: o usuário já pôs a imagem, falta só a legenda), nada alterado nos últimos 60 segundos (cópia terminada).
   Se a pasta não tem .txt, "legenda" vem nula e "tituloTrabalho" traz o título que o usuário deu
   (nome do arquivo de vídeo ou, se for genérico como "video", o nome da pasta): a legenda deve ser criada.
+  "referencia" traz a imagem referencia.png/.jpg, se o usuário pôs uma: a thumbnail deve usar esse momento do vídeo.
   Pastas com THUMB-ERRO.txt são puladas até o usuário apagar esse arquivo.
   Saída: JSON com a lista.
 #>
@@ -26,7 +27,9 @@ if (Test-Path $inbox) {
         if ($files | Where-Object { $_.Name -ieq 'THUMB-ERRO.txt' }) { continue }
         $videos = @($files | Where-Object { $videoExt -contains $_.Extension.ToLower() })
         $texts = @($files | Where-Object { $_.Extension -ieq '.txt' -and $_.Name -ine 'REIMPORTAR.txt' })
-        $images = @($files | Where-Object { $imageExt -contains $_.Extension.ToLower() })
+        $allImages = @($files | Where-Object { $imageExt -contains $_.Extension.ToLower() })
+        $reference = $allImages | Where-Object { Test-Reference $_ } | Select-Object -First 1
+        $images = @($allImages | Where-Object { -not (Test-Reference $_) })
         # Com imagem e com .txt já está completa (o mover-para-youtube.ps1 cuida). Com imagem e sem .txt falta só a legenda.
         if ($videos.Count -ne 1 -or ($images.Count -gt 0 -and $texts.Count -gt 0)) { continue }
 
@@ -55,6 +58,7 @@ if (Test-Path $inbox) {
             legenda        = if ($caption) { $caption.FullName } else { $null }
             tituloTrabalho = $working
             temThumbnail   = $images.Count -gt 0
+            referencia     = if ($reference) { $reference.FullName } else { $null }
         }
     }
 }
