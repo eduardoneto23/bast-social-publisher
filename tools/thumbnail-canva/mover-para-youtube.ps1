@@ -38,6 +38,7 @@ foreach ($dir in $candidates) {
         $newest = ($files | Measure-Object LastWriteTimeUtc -Maximum).Maximum
         if (((Get-Date).ToUniversalTime() - $newest).TotalSeconds -lt $StableSeconds) { continue }
     }
+    if (Test-InUse $files) { continue }
 
     $destination = Join-Path $target $dir.Name
     for ($i = 2; Test-Path -LiteralPath $destination; $i++) { $destination = Join-Path $target "$($dir.Name) ($i)" }

@@ -9,6 +9,15 @@ function Resolve-Root([string]$Given) {
     throw "Pasta principal não encontrada. Informe -Root ou configure Bast:RootFolder no appsettings.Local.json."
 }
 
+# Verdadeiro quando algum arquivo da lista ainda está aberto por outro programa (cópia em andamento).
+function Test-InUse($files) {
+    foreach ($file in $files) {
+        try { $stream = [IO.File]::Open($file.FullName, 'Open', 'Read', 'None'); $stream.Dispose() }
+        catch { return $true }
+    }
+    return $false
+}
+
 # Localiza ffmpeg/ffprobe: parâmetro, depois appsettings.Local.json do serviço, depois o PATH.
 function Resolve-Tool([string]$Given, [string]$SettingName, [string]$Command) {
     if ($Given) { return $Given }

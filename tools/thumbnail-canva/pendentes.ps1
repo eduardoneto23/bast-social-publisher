@@ -32,6 +32,8 @@ if (Test-Path $inbox) {
 
         $newest = ($files | Measure-Object LastWriteTimeUtc -Maximum).Maximum
         if (((Get-Date).ToUniversalTime() - $newest).TotalSeconds -lt $StableSeconds) { continue }
+        # A cópia do Windows mantém a data do original: um arquivo ainda em uso indica cópia em andamento.
+        if (Test-InUse $files) { continue }
 
         $caption = $null
         if ($texts.Count -gt 0) {
@@ -39,8 +41,12 @@ if (Test-Path $inbox) {
             if (-not $caption) { $caption = $texts[0] }
         }
 
-        $working = [IO.Path]::GetFileNameWithoutExtension($videos[0].Name).Trim()
-        if ($working -match $generic) { $working = $dir.Name }
+        # Título de trabalho: nome da pasta e do arquivo juntos, sem repetir o que um já contém.
+        $fileTitle = [IO.Path]::GetFileNameWithoutExtension($videos[0].Name).Trim()
+        $folderTitle = $dir.Name.Trim()
+        if ($fileTitle -match $generic -or $folderTitle.ToLower().Contains($fileTitle.ToLower())) { $working = $folderTitle }
+        elseif ($fileTitle.ToLower().Contains($folderTitle.ToLower())) { $working = $fileTitle }
+        else { $working = "$folderTitle - $fileTitle" }
 
         $result += [pscustomobject]@{
             pasta          = $dir.FullName
