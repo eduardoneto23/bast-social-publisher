@@ -6,7 +6,7 @@ using Bast.Infrastructure;
 namespace Bast.Service;
 
 /// <summary>
-/// Monitora 01 - ENVIAR continuamente. O FileSystemWatcher apenas antecipa a varredura;
+/// Monitora 01 - ENVIAR e 01 - ENVIAR YOUTUBE continuamente. O FileSystemWatcher apenas antecipa a varredura;
 /// a varredura periódica garante que nada se perca se um evento do sistema for descartado.
 /// </summary>
 public sealed class ImportWorker(
@@ -24,20 +24,32 @@ public sealed class ImportWorker(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var inbox = workspace.PathOf(WorkspaceFolder.Inbox);
-        using var watcher = new FileSystemWatcher(inbox)
+        var inboxes = new (string Path, VideoLane Lane)[]
         {
-            IncludeSubdirectories = true,
-            NotifyFilter = NotifyFilters.DirectoryName | NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size,
+            (workspace.PathOf(WorkspaceFolder.Inbox), VideoLane.Standard),
+            (workspace.PathOf(WorkspaceFolder.YouTubeInbox), VideoLane.YouTubeHorizontal),
         };
-        watcher.Created += (_, _) => Wake();
-        watcher.Changed += (_, _) => Wake();
-        watcher.Renamed += (_, _) => Wake();
-        watcher.Deleted += (_, _) => Wake();
-        watcher.Error += (_, e) => logger.LogWarning(e.GetException(), "Monitor de pastas reportou erro; a varredura periódica continua ativa.");
-        watcher.EnableRaisingEvents = true;
+        var watchers = new List<FileSystemWatcher>();
+        foreach (var (path, _) in inboxes)
+        {
+            Directory.CreateDirectory(path);
+            var watcher = new FileSystemWatcher(path)
+            {
+                IncludeSubdirectories = true,
+                NotifyFilter = NotifyFilters.DirectoryName | NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size,
+            };
+            watcher.Created += (_, _) => Wake();
+            watcher.Changed += (_, _) => Wake();
+            watcher.Renamed += (_, _) => Wake();
+            watcher.Deleted += (_, _) => Wake();
+            watcher.Error += (_, e) => logger.LogWarning(e.GetException(), "Monitor de pastas reportou erro; a varredura periódica continua ativa.");
+            watcher.EnableRaisingEvents = true;
+            watchers.Add(watcher);
+            logger.LogInformation("Monitorando {Inbox}.", path);
+        }
 
-        logger.LogInformation("Monitorando {Inbox}.", inbox);
+        using var cleanup = new WatcherSet(watchers);
+        var inbox = string.Join(" e ", inboxes.Select(i => i.Path));
         var tracker = new StabilityTracker(time, TimeSpan.FromSeconds(options.StabilitySeconds));
         // Varre mais rápido que a janela de estabilidade para liberar a pasta assim que ela fecha.
         var interval = TimeSpan.FromSeconds(Math.Min(options.ScanIntervalSeconds, Math.Max(1, options.StabilitySeconds / 2.0)));
@@ -46,7 +58,7 @@ public sealed class ImportWorker(
         {
             try
             {
-                await ScanAsync(inbox, tracker, stoppingToken);
+                await ScanAsync(inboxes, tracker, stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -68,11 +80,18 @@ public sealed class ImportWorker(
         }
     }
 
-    private async Task ScanAsync(string inbox, StabilityTracker tracker, CancellationToken ct)
+    private async Task ScanAsync((string Path, VideoLane Lane)[] inboxes, StabilityTracker tracker, CancellationToken ct)
     {
-        Directory.CreateDirectory(inbox);
-        var folders = Directory.GetDirectories(inbox)
-            .OrderBy(Path.GetFileName, NaturalStringComparer.Instance)
+        var lanes = new Dictionary<string, VideoLane>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (inbox, lane) in inboxes)
+        {
+            Directory.CreateDirectory(inbox);
+            foreach (var folder in Directory.GetDirectories(inbox)) lanes[folder] = lane;
+        }
+
+        var folders = lanes.Keys
+            .OrderBy(f => lanes[f])
+            .ThenBy(Path.GetFileName, NaturalStringComparer.Instance)
             .ToList();
 
         tracker.Prune(folders);
@@ -92,7 +111,7 @@ public sealed class ImportWorker(
             var name = Path.GetFileName(folder);
             try
             {
-                var outcome = await importService.ProcessFolderAsync(folder, ct);
+                var outcome = await importService.ProcessFolderAsync(folder, ct, lanes[folder]);
                 switch (outcome)
                 {
                     case ImportOutcome.Imported:
@@ -121,6 +140,14 @@ public sealed class ImportWorker(
             {
                 logger.LogError(ex, "{Folder}: erro inesperado na importação.", name);
             }
+        }
+    }
+
+    private sealed class WatcherSet(List<FileSystemWatcher> watchers) : IDisposable
+    {
+        public void Dispose()
+        {
+            foreach (var watcher in watchers) watcher.Dispose();
         }
     }
 

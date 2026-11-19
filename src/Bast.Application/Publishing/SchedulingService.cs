@@ -45,9 +45,15 @@ public sealed class SchedulingService(
     public IReadOnlyList<Platform> ActivePlatforms(ScheduleSettings settings) =>
         settings.Platforms.Where(p => registry.Available.Contains(p)).ToList();
 
+    /// <summary>Redes que recebem o vídeo: as marcadas na agenda, ou só o YouTube para os horizontais.</summary>
+    public IReadOnlyList<Platform> PlatformsFor(VideoLane lane, ScheduleSettings settings) => lane == VideoLane.YouTubeHorizontal
+        ? registry.Available.Contains(Platform.YouTube) ? [Platform.YouTube] : []
+        : ActivePlatforms(settings);
+
     /// <summary>
-    /// Modo automático: agenda, em ordem numérica, os vídeos validados que ainda não têm horário.
-    /// Modo manual: só avisa (uma vez por vídeo) que há vídeo aguardando horário.
+    /// Fila principal, modo automático: agenda, em ordem numérica, os vídeos validados que ainda não têm horário.
+    /// Fila principal, modo manual: só avisa (uma vez por vídeo) que há vídeo aguardando horário.
+    /// Vídeos horizontais do YouTube: sempre a próxima janela livre do dia, um vídeo por janela.
     /// </summary>
     public async Task<int> ScheduleNewAsync(CancellationToken ct)
     {
@@ -64,28 +70,32 @@ public sealed class SchedulingService(
         if (waiting.Count == 0) return 0;
 
         var now = Now;
+        var scheduled = await ScheduleHorizontalAsync(db, settings, waiting.Where(v => v.Lane == VideoLane.YouTubeHorizontal).ToList(), now, ct);
+
+        var standard = waiting.Where(v => v.Lane == VideoLane.Standard).ToList();
+        if (standard.Count == 0) return scheduled;
+
         if (settings.Mode == ScheduleMode.Manual)
         {
-            foreach (var video in waiting)
+            foreach (var video in standard)
             {
                 await NotificationOutbox.AddAsync(db, NotificationKind.TimeNeeded, $"video:{video.Id}:time-needed",
                     NotificationOutbox.TimeNeeded(video.FolderName), now, ct);
             }
 
             await db.SaveChangesAsync(ct);
-            return 0;
+            return scheduled;
         }
 
         var platforms = ActivePlatforms(settings);
-        if (platforms.Count == 0) return 0;
+        if (platforms.Count == 0) return scheduled;
 
         var lastReserved = await db.Videos
-            .Where(v => v.State == VideoState.Ready && v.ScheduledAtUtc != null)
+            .Where(v => v.State == VideoState.Ready && v.ScheduledAtUtc != null && v.Lane == VideoLane.Standard)
             .MaxAsync(v => v.ScheduledAtUtc, ct);
         var cursor = lastReserved is { } last && last > now ? last : now;
-        var scheduled = 0;
 
-        foreach (var video in waiting)
+        foreach (var video in standard)
         {
             var slot = SlotCalculator.NextSlotUtc(settings, cursor);
             if (slot is null)
@@ -107,6 +117,53 @@ public sealed class SchedulingService(
 
         return scheduled;
     }
+
+    /// <summary>
+    /// Cada vídeo horizontal recebe a janela seguinte à do último horizontal já reservado (ou a próxima a partir
+    /// de agora). Janela colada no horário de outro vídeo, de qualquer fila, é pulada: dois vídeos nunca saem juntos.
+    /// </summary>
+    private async Task<int> ScheduleHorizontalAsync(BastDbContext db, ScheduleSettings settings, List<Video> videos, DateTime now, CancellationToken ct)
+    {
+        if (videos.Count == 0) return 0;
+        var platforms = PlatformsFor(VideoLane.YouTubeHorizontal, settings);
+        if (platforms.Count == 0) return 0;
+
+        var lastReserved = await db.Videos
+            .Where(v => v.State == VideoState.Ready && v.ScheduledAtUtc != null && v.Lane == VideoLane.YouTubeHorizontal)
+            .MaxAsync(v => v.ScheduledAtUtc, ct);
+        var cursor = lastReserved is { } last && last > now ? last : now;
+        var busy = await BusyTimesAsync(db, ct);
+        var scheduled = 0;
+
+        foreach (var video in videos)
+        {
+            var slot = SlotCalculator.NextHorizontalSlotUtc(settings, cursor, utc => busy.Any(b => (b - utc).Duration() < MinimumGap));
+            if (slot is null)
+            {
+                logger.LogWarning("Nenhuma janela disponível para os vídeos horizontais; vídeos aguardando.");
+                break;
+            }
+
+            if (Assign(db, video, slot.Value, platforms, now))
+            {
+                cursor = slot.Value;
+                busy.Add(slot.Value);
+                scheduled++;
+                logger.LogInformation("{Folder} (YouTube horizontal) agendado para {Slot:yyyy-MM-dd HH:mm} UTC.", video.FolderName, slot);
+            }
+
+            await db.SaveChangesAsync(ct);
+        }
+
+        return scheduled;
+    }
+
+    /// <summary>Horários já ocupados por vídeos que ainda vão sair.</summary>
+    private static async Task<List<DateTime>> BusyTimesAsync(BastDbContext db, CancellationToken ct) =>
+        await db.Videos
+            .Where(v => v.ScheduledAtUtc != null && (v.State == VideoState.Ready || v.State == VideoState.Publishing))
+            .Select(v => v.ScheduledAtUtc!.Value)
+            .ToListAsync(ct);
 
     /// <summary>
     /// Marca (ou muda) o horário de um vídeo, escolhido pelo usuário no fuso da agenda. Vale nos dois
@@ -144,11 +201,12 @@ public sealed class SchedulingService(
         var others = await db.Videos
             .Where(v => v.Id != video.Id && v.ScheduledAtUtc != null
                         && (v.State == VideoState.Ready || v.State == VideoState.Publishing || v.State == VideoState.Published))
-            .Select(v => new { v.FolderName, ScheduledAtUtc = v.ScheduledAtUtc!.Value })
+            .Select(v => new { v.FolderName, v.Lane, ScheduledAtUtc = v.ScheduledAtUtc!.Value })
             .ToListAsync(ct);
 
-        var limit = settings.ChosenTimeMaxPerDay;
-        var sameDay = others.Count(o => o.ScheduledAtUtc >= dayStart && o.ScheduledAtUtc < dayEnd);
+        // O limite do dia é de cada fila; o choque de horário vale entre todas.
+        var limit = video.Lane == VideoLane.YouTubeHorizontal ? settings.HorizontalPerDay : settings.ChosenTimeMaxPerDay;
+        var sameDay = others.Count(o => o.Lane == video.Lane && o.ScheduledAtUtc >= dayStart && o.ScheduledAtUtc < dayEnd);
         if (sameDay >= limit)
         {
             return new(false, $"O dia {localTime:dd/MM} já tem {sameDay} vídeo(s), e o máximo é {limit} por dia. Escolha outro dia ou mude o máximo na Agenda.");
@@ -159,8 +217,11 @@ public sealed class SchedulingService(
 
         if (video.Publications.Count == 0)
         {
-            var platforms = ActivePlatforms(settings);
-            if (platforms.Count == 0) return new(false, "Nenhuma rede conectada e marcada na Agenda.");
+            var platforms = PlatformsFor(video.Lane, settings);
+            if (platforms.Count == 0)
+            {
+                return new(false, video.Lane == VideoLane.YouTubeHorizontal ? "O YouTube não está conectado." : "Nenhuma rede conectada e marcada na Agenda.");
+            }
             if (!Assign(db, video, slot, platforms, now)) return new(false, "O vídeo não é compatível com nenhuma das redes marcadas; veja o motivo em Problemas.");
         }
         else
@@ -189,7 +250,7 @@ public sealed class SchedulingService(
         var video = await db.Videos.Include(v => v.Publications).FirstOrDefaultAsync(v => v.Id == videoId, ct);
         if (video is null || video.State != VideoState.Ready || video.Publications.Count > 0) return 0;
 
-        var platforms = ActivePlatforms(settings);
+        var platforms = PlatformsFor(video.Lane, settings);
         if (platforms.Count == 0) return 0;
 
         var now = Now;
@@ -199,10 +260,11 @@ public sealed class SchedulingService(
     }
 
     /// <summary>
-    /// Trata horários perdidos (computador desligado, serviço parado, fila pausada).
-    /// Modo automático: os vídeos que ainda não começaram são redistribuídos, na mesma ordem, pelos
-    /// próximos horários. Modo manual: o horário escolhido é desfeito e o vídeo volta a aguardar
-    /// horário, com aviso. Nos dois casos nunca publica o acumulado de uma vez.
+    /// Trata horários perdidos (computador desligado, serviço parado, fila pausada). Nunca publica o
+    /// acumulado de uma vez: só um vídeo atrasado dentro da tolerância mantém o horário.
+    /// Fila principal, automático: os vídeos que não começaram são redistribuídos pelos próximos horários.
+    /// Fila principal, manual: o horário escolhido é desfeito e o vídeo volta a aguardar horário, com aviso.
+    /// Horizontais do YouTube: são redistribuídos, na mesma ordem, pelas próximas janelas livres.
     /// </summary>
     public async Task<int> ReflowMissedAsync(CancellationToken ct)
     {
@@ -220,58 +282,74 @@ public sealed class SchedulingService(
             .ThenBy(v => v.FolderName, NaturalStringComparer.Instance)
             .ToList();
 
-        // Um único vídeo atrasado dentro da tolerância mantém o horário e publica agora.
-        // Qualquer outro vídeo com horário vencido é redistribuído: dois vídeos nunca saem juntos.
         var overdue = queue.Where(v => v.ScheduledAtUtc <= now).ToList();
         var keep = overdue.Count > 0 && overdue[0].ScheduledAtUtc >= cutoff ? overdue[0] : null;
-        if (overdue.Count == (keep is null ? 0 : 1)) return 0;
+        var missed = overdue.Where(v => v != keep).ToList();
+        if (missed.Count == 0) return 0;
 
-        if (settings.Mode == ScheduleMode.Manual)
+        var changed = 0;
+        if (missed.Any(v => v.Lane == VideoLane.Standard))
         {
-            var missed = overdue.Where(v => v != keep).ToList();
-            foreach (var video in missed)
+            if (settings.Mode == ScheduleMode.Manual)
             {
-                var original = video.ScheduledAtUtc!.Value;
-                video.ScheduledAtUtc = null;
-                video.UpdatedAtUtc = now;
-                foreach (var publication in video.Publications.Where(p => p.State == PublicationState.Scheduled))
+                foreach (var video in missed.Where(v => v.Lane == VideoLane.Standard))
                 {
-                    publication.ScheduledAtUtc = null;
-                    publication.UpdatedAtUtc = now;
+                    var original = video.ScheduledAtUtc!.Value;
+                    Move(video, null, now);
+                    await NotificationOutbox.AddAsync(db, NotificationKind.TimeNeeded, $"video:{video.Id}:missed:{original:yyyyMMddHHmm}",
+                        NotificationOutbox.ChosenTimeMissed(video.FolderName), now, ct);
+                    changed++;
                 }
-
-                await NotificationOutbox.AddAsync(db, NotificationKind.TimeNeeded, $"video:{video.Id}:missed:{original:yyyyMMddHHmm}",
-                    NotificationOutbox.ChosenTimeMissed(video.FolderName), now, ct);
             }
+            else
+            {
+                var cursor = now;
+                var first = true;
+                foreach (var video in queue.Where(v => v.Lane == VideoLane.Standard && v != keep))
+                {
+                    var slot = SlotCalculator.NextSlotUtc(settings, cursor, skipToNextDay: first && settings.MissedPolicy == MissedSlotPolicy.NextCycle);
+                    if (slot is null) break;
 
-            await db.SaveChangesAsync(ct);
-            logger.LogWarning("Horário perdido no modo manual: {Count} vídeo(s) voltaram a aguardar horário.", missed.Count);
-            return missed.Count;
+                    first = false;
+                    cursor = slot.Value;
+                    Move(video, slot, now);
+                    changed++;
+                }
+            }
         }
 
-        queue.Remove(keep!);
-        var cursor = now;
-        var first = true;
-        foreach (var video in queue)
+        if (missed.Any(v => v.Lane == VideoLane.YouTubeHorizontal))
         {
-            var slot = SlotCalculator.NextSlotUtc(settings, cursor, skipToNextDay: first && settings.MissedPolicy == MissedSlotPolicy.NextCycle);
-            if (slot is null) return 0;
-
-            first = false;
-            cursor = slot.Value;
-            video.ScheduledAtUtc = slot;
-            video.UpdatedAtUtc = now;
-            foreach (var publication in video.Publications.Where(p => p.State == PublicationState.Scheduled))
+            var horizontal = queue.Where(v => v.Lane == VideoLane.YouTubeHorizontal && v != keep).ToList();
+            var busy = queue.Where(v => !horizontal.Contains(v) && v.ScheduledAtUtc is not null).Select(v => v.ScheduledAtUtc!.Value).ToList();
+            var cursor = now;
+            foreach (var video in horizontal)
             {
-                publication.ScheduledAtUtc = slot;
-                publication.UpdatedAtUtc = now;
+                var slot = SlotCalculator.NextHorizontalSlotUtc(settings, cursor, utc => busy.Any(b => (b - utc).Duration() < MinimumGap));
+                if (slot is null) break;
+
+                cursor = slot.Value;
+                busy.Add(slot.Value);
+                Move(video, slot, now);
+                changed++;
             }
         }
 
         await db.SaveChangesAsync(ct);
-        logger.LogWarning("Horário perdido detectado: {Count} vídeo(s) redistribuído(s) a partir de {Slot:yyyy-MM-dd HH:mm} UTC.",
-            queue.Count, queue[0].ScheduledAtUtc);
-        return queue.Count;
+        logger.LogWarning("Horário perdido detectado: {Count} vídeo(s) remarcado(s) ou devolvido(s) para escolha de horário.", changed);
+        return changed;
+    }
+
+    /// <summary>Muda o horário do vídeo e das publicações que ainda aguardam. Nulo = volta a aguardar horário.</summary>
+    private static void Move(Video video, DateTime? slot, DateTime now)
+    {
+        video.ScheduledAtUtc = slot;
+        video.UpdatedAtUtc = now;
+        foreach (var publication in video.Publications.Where(p => p.State == PublicationState.Scheduled))
+        {
+            publication.ScheduledAtUtc = slot;
+            publication.UpdatedAtUtc = now;
+        }
     }
 
     /// <summary>

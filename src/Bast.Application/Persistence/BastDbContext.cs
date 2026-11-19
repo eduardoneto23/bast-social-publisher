@@ -27,6 +27,7 @@ public sealed class BastDbContext(DbContextOptions<BastDbContext> options) : DbC
             e.ToTable("videos");
             e.HasKey(v => v.Id);
             e.Property(v => v.State).HasConversion<string>().HasMaxLength(20);
+            e.Property(v => v.Lane).HasConversion<string>().HasMaxLength(20);
             e.Property(v => v.CurrentFolder).HasConversion<string>().HasMaxLength(20);
             e.Property(v => v.PendingMoveFolder).HasConversion<string>().HasMaxLength(20);
             e.Property(v => v.ContentHash).HasMaxLength(64);

@@ -26,7 +26,7 @@ public enum PublishOutcomeKind
     Skipped,
 }
 
-public sealed record PublishOutcome(PublishOutcomeKind Kind, string? ExternalId = null, string? Url = null, string? Error = null, TimeSpan? RetryAfter = null)
+public sealed record PublishOutcome(PublishOutcomeKind Kind, string? ExternalId = null, string? Url = null, string? Error = null, TimeSpan? RetryAfter = null, string? Warning = null)
 {
     public static PublishOutcome Published(string externalId, string? url) => new(PublishOutcomeKind.Published, externalId, url);
     public static PublishOutcome Processing(string externalId, TimeSpan? checkAfter = null) => new(PublishOutcomeKind.Processing, externalId, RetryAfter: checkAfter);

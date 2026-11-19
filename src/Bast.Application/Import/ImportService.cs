@@ -29,11 +29,23 @@ public sealed class ImportService(
     TimeProvider time,
     ILogger<ImportService> logger)
 {
-    public async Task<ImportOutcome> ProcessFolderAsync(string folderPath, CancellationToken ct)
+    /// <param name="lane">
+    /// Fila da pasta de entrada. <see cref="VideoLane.YouTubeHorizontal"/> exige thumbnail e vídeo horizontal.
+    /// </param>
+    public async Task<ImportOutcome> ProcessFolderAsync(string folderPath, CancellationToken ct, VideoLane lane = VideoLane.Standard)
     {
         var folderName = Path.GetFileName(folderPath);
 
         var inspection = inspector.Inspect(folderPath);
+        if (lane == VideoLane.YouTubeHorizontal && inspection.ThumbnailFile is null)
+        {
+            inspection = inspection with
+            {
+                Problems = [.. inspection.Problems, new ImportProblem(ImportIssueCode.MissingThumbnail,
+                    "Vídeo horizontal do YouTube precisa da thumbnail: coloque uma imagem thumbnail.jpg (ou .png) na pasta.")],
+            };
+        }
+
         if (inspection.Problems.Count > 0)
         {
             foreach (var problem in inspection.Problems)
@@ -74,6 +86,14 @@ public sealed class ImportService(
             return await RejectAsync(folderPath, folderName, result.Error ?? "Vídeo inválido.", ct);
         }
 
+        if (lane == VideoLane.YouTubeHorizontal && result.Analysis!.Width <= result.Analysis.Height)
+        {
+            await store.ReportIssueAsync(folderName, ImportIssueCode.NotHorizontal,
+                $"O vídeo tem {result.Analysis.Width}x{result.Analysis.Height} e não é horizontal. A pasta 01 - ENVIAR YOUTUBE é só para vídeos horizontais; vídeos verticais vão em 01 - ENVIAR.",
+                null, ct);
+            return ImportOutcome.Incomplete;
+        }
+
         var hash = await FileHasher.Sha256Async(videoPath, ct);
         var existing = await store.FindByHashAsync(hash, ct);
 
@@ -107,7 +127,8 @@ public sealed class ImportService(
             ContentHash = hash,
             Generation = existing.Count == 0 ? 1 : existing.Max(v => v.Generation) + 1,
             State = VideoState.Importing,
-            CurrentFolder = WorkspaceFolder.Inbox,
+            Lane = lane,
+            CurrentFolder = lane == VideoLane.YouTubeHorizontal ? WorkspaceFolder.YouTubeInbox : WorkspaceFolder.Inbox,
             RelativePath = workspace.ToRelative(folderPath),
             PendingMovePath = workspace.ToRelative(destination),
             VideoFileName = Path.GetFileName(videoPath),

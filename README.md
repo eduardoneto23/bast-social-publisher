@@ -113,7 +113,8 @@ Em modo de teste do Google a autorização expira a cada 7 dias. Para evitar iss
 Dentro de `RootFolder` o programa cria esta estrutura:
 
 ```
-01 - ENVIAR/       coloque aqui as pastas dos vídeos
+01 - ENVIAR/       coloque aqui as pastas dos vídeos verticais (todas as redes)
+01 - ENVIAR YOUTUBE/  vídeos horizontais, só para o YouTube (ver abaixo)
 02 - AGENDADOS/    validados, aguardando o horário
 03 - PUBLICANDO/   em envio
 04 - ENVIADOS/     publicados
@@ -147,6 +148,25 @@ E você, curtiu essa novidade?
 - A legenda nunca é alterada pelo programa.
 - Vídeo vertical de até 3 minutos é publicado pelo YouTube como Short.
 - As pastas são publicadas em ordem numérica: `Video 2` antes de `Video 10`.
+
+### Vídeos horizontais (só YouTube)
+
+Vídeos longos na horizontal vão em `01 - ENVIAR YOUTUBE`, cada um na sua pasta:
+
+```
+Video 001/
+  video.mp4         (horizontal: mais largo que alto)
+  legenda.txt       (mesmo padrão: 1ª linha é o título)
+  thumbnail.jpg     (obrigatória; .jpg ou .png)
+```
+
+- Vão **só para o YouTube**, com a thumbnail.
+- São **7 por dia**, em janelas divididas igualmente das **06:00 às 23:00**: 06:00, 08:50, 11:40, 14:30, 17:20, 20:10 e 23:00, todos os dias. Isso pode ser mudado na aba Agenda.
+- Cada vídeo pega a **próxima janela livre depois do último já reservado**: colocou um, ele sai na próxima janela; colocou outro, sai na seguinte, e assim por diante. Uma janela nunca tem dois vídeos, e uma janela que coincide com o horário de um vídeo vertical é pulada.
+- Pasta sem thumbnail ou com vídeo vertical fica em `01 - ENVIAR YOUTUBE` e aparece em Problemas com o motivo.
+- Se o computador estava desligado nas janelas, os vídeos passam para as próximas janelas livres, nunca todos de uma vez.
+- O YouTube só aceita thumbnail personalizada em canal verificado (youtube.com/verify). Se ele recusar, o vídeo sai com a imagem automática e o aviso aparece no painel e no Telegram.
+- Esses vídeos seguem a sua própria agenda: o modo manual e o máximo de 3 por dia valem só para `01 - ENVIAR`.
 
 ### 7. Acompanhar
 

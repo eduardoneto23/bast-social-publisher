@@ -199,6 +199,9 @@ namespace Bast.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("VideoId")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("Warning")
+                        .HasColumnType("TEXT");
+
                     b.HasKey("Id");
 
                     b.HasIndex("IdempotencyKey")
@@ -257,6 +260,15 @@ namespace Bast.Infrastructure.Persistence.Migrations
                         .HasColumnType("INTEGER");
 
                     b.Property<TimeOnly>("EndTime")
+                        .HasColumnType("TEXT");
+
+                    b.Property<TimeOnly>("HorizontalEndTime")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("HorizontalPerDay")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<TimeOnly>("HorizontalStartTime")
                         .HasColumnType("TEXT");
 
                     b.Property<int>("IntervalMinutes")
@@ -359,6 +371,11 @@ namespace Bast.Infrastructure.Persistence.Migrations
                         .HasColumnType("INTEGER");
 
                     b.Property<DateTime>("ImportedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Lane")
+                        .IsRequired()
+                        .HasMaxLength(20)
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Note")

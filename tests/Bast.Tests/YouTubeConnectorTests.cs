@@ -153,6 +153,42 @@ public sealed class YouTubeHarness : IDisposable
 public class YouTubeConnectorTests
 {
     [Fact]
+    public async Task Thumbnail_is_sent_and_a_refusal_becomes_a_warning_without_failing_the_video()
+    {
+        using var h = new YouTubeHarness();
+        var thumbnail = Path.Combine(h.Env.Root, "thumbnail.jpg");
+        File.WriteAllBytes(thumbnail, [0xFF, 0xD8, 0xFF, 0xE0]);
+        byte[]? sent = null;
+        var status = HttpStatusCode.OK;
+        h.Google.Intercept = r =>
+        {
+            if (!r.RequestUri!.ToString().Contains("/youtube/v3/thumbnails/set?videoId=video-abc", StringComparison.Ordinal)) return null;
+            sent = r.Content!.ReadAsByteArrayAsync().GetAwaiter().GetResult();
+            Assert.Equal("image/jpeg", r.Content.Headers.ContentType!.MediaType);
+            return status == HttpStatusCode.OK
+                ? FakeGoogle.Json(HttpStatusCode.OK, """{"items":[{"default":{"url":"https://i.ytimg.com/x.jpg"}}]}""")
+                : FakeGoogle.Json(status, """{"error":{"code":403,"message":"The authenticated user doesn't have permissions to upload and set custom video thumbnails.","errors":[{"reason":"forbidden"}]}}""");
+        };
+        PublishRequest WithThumbnail() => h.Request() with { ThumbnailPath = thumbnail };
+
+        var ok = await h.Connector.PublishAsync(WithThumbnail(), default);
+        Assert.Equal(PublishOutcomeKind.Processing, ok.Kind);
+        Assert.Null(ok.Warning);
+        Assert.Equal(new byte[] { 0xFF, 0xD8, 0xFF, 0xE0 }, sent);
+
+        using var h2 = new YouTubeHarness();
+        File.WriteAllBytes(Path.Combine(h2.Env.Root, "thumbnail.jpg"), [0xFF, 0xD8]);
+        h2.Google.Intercept = r => r.RequestUri!.ToString().Contains("/thumbnails/set", StringComparison.Ordinal)
+            ? FakeGoogle.Json(HttpStatusCode.Forbidden, """{"error":{"code":403,"message":"The authenticated user doesn't have permissions to upload and set custom video thumbnails.","errors":[{"reason":"forbidden"}]}}""")
+            : null;
+        var refused = await h2.Connector.PublishAsync(h2.Request() with { ThumbnailPath = Path.Combine(h2.Env.Root, "thumbnail.jpg") }, default);
+
+        Assert.Equal(PublishOutcomeKind.Processing, refused.Kind);
+        Assert.Equal("video-abc", refused.ExternalId);
+        Assert.Contains("thumbnail não foi aplicada", refused.Warning);
+        Assert.Contains("youtube.com/verify", refused.Warning);
+    }
+    [Fact]
     public async Task Uploads_in_chunks_saves_the_session_first_and_waits_for_confirmation()
     {
         using var h = new YouTubeHarness();

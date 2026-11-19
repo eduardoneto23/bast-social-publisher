@@ -138,8 +138,12 @@ app.MapGet("/api/queue", async (IDbContextFactory<BastDbContext> factory, Cancel
             v.Id,
             v.FolderName,
             v.State,
+            v.Lane,
             folder = v.CurrentFolder,
             v.ScheduledAtUtc,
+            v.Width,
+            v.Height,
+            hasThumbnail = v.ThumbnailFileName != null,
             youTubeTitle = CaptionRules.YouTubeTitle(v.CaptionText),
             publications = v.Publications.OrderBy(p => p.Platform).Select(p => new
             {
@@ -152,6 +156,7 @@ app.MapGet("/api/queue", async (IDbContextFactory<BastDbContext> factory, Cancel
                 p.NextRetryAtUtc,
                 p.AttemptCount,
                 p.LastError,
+                p.Warning,
                 p.ExternalId,
                 p.ExternalUrl,
                 p.Simulated,
@@ -445,6 +450,10 @@ static object ToResponse(ScheduleSettings s) => new
     s.MaxAttempts,
     s.Mode,
     s.ManualMaxPerDay,
+    horizontalStartTime = s.HorizontalStartTime.ToString("HH:mm"),
+    horizontalEndTime = s.HorizontalEndTime.ToString("HH:mm"),
+    s.HorizontalPerDay,
+    horizontalTimes = SlotCalculator.HorizontalTimes(s).Select(t => t.ToString("HH:mm")),
     s.Paused,
     s.UpdatedAtUtc,
 };

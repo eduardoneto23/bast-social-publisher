@@ -17,6 +17,7 @@ public sealed class Video
     public int Generation { get; set; }
 
     public VideoState State { get; set; }
+    public VideoLane Lane { get; set; } = VideoLane.Standard;
     public WorkspaceFolder CurrentFolder { get; set; }
 
     /// <summary>Caminho da pasta do vídeo, relativo à pasta principal.</summary>
@@ -71,6 +72,9 @@ public sealed class Publication
 
     public int AttemptCount { get; set; }
     public string? LastError { get; set; }
+
+    /// <summary>Algo que não impediu a publicação, mas o usuário precisa saber (ex.: thumbnail recusada).</summary>
+    public string? Warning { get; set; }
 
     /// <summary>Identificador devolvido pela plataforma (sessão de upload, contêiner ou publicação).</summary>
     public string? ExternalId { get; set; }

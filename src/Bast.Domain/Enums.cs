@@ -48,6 +48,17 @@ public enum WorkspaceFolder
     Sent,
     Errors,
     Archived,
+    /// <summary>Entrada dos vídeos horizontais que vão só para o YouTube.</summary>
+    YouTubeInbox,
+}
+
+/// <summary>Fila do vídeo: define a pasta de entrada, as redes e a agenda.</summary>
+public enum VideoLane
+{
+    /// <summary>01 - ENVIAR: todas as redes marcadas, agenda principal (automática ou manual).</summary>
+    Standard,
+    /// <summary>01 - ENVIAR YOUTUBE: vídeo horizontal com thumbnail, só YouTube, janelas fixas por dia.</summary>
+    YouTubeHorizontal,
 }
 
 public enum ImportIssueCode
@@ -62,4 +73,8 @@ public enum ImportIssueCode
     Duplicate,
     ToolUnavailable,
     MoveFailed,
+    /// <summary>Vídeo horizontal sem a imagem da thumbnail.</summary>
+    MissingThumbnail,
+    /// <summary>Vídeo em 01 - ENVIAR YOUTUBE que não é horizontal.</summary>
+    NotHorizontal,
 }

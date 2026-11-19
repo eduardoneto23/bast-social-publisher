@@ -182,3 +182,13 @@ Cenários da seção 12 cobertos por teste automatizado: 1, 2, 3, 4, 8 (falha pa
 - Publicar agora funciona para video aguardando horario (cria as publicacoes para ja).
 - Painel: aba Agenda com o modo e o maximo por dia do manual; aba Fila com data e hora por video, contagem do dia e Mudar horario; o painel nao redesenha enquanto o campo de horario esta em uso.
 - 13 testes novos (198 no total, 6 rodadas seguidas). Teste antigo do Telegram ficou tolerante ao arquivo -wal do SQLite que some durante a leitura.
+## 2026-11-19 - Videos horizontais so para o YouTube
+
+- Pedido: fila separada para videos horizontais, so YouTube, 7 por dia das 06:00 as 23:00 divididos igualmente, um por janela, cada video novo na janela seguinte; pasta com video, TXT e thumbnail.
+- Decisoes do usuario: pasta propria `01 - ENVIAR YOUTUBE`; thumbnail obrigatoria.
+- `VideoLane` (Standard / YouTubeHorizontal) no video; `WorkspaceFolder.YouTubeInbox`; importacao exige thumbnail (`MissingThumbnail`) e largura > altura (`NotHorizontal`), sem mover a pasta.
+- Janelas: `HorizontalStartTime` 06:00, `HorizontalEndTime` 23:00, `HorizontalPerDay` 7 (06:00, 08:50, 11:40, 14:30, 17:20, 20:10, 23:00). Proxima janela depois do ultimo horizontal reservado, pulando janela a menos de 1 min de qualquer outro video. Sempre automatico, independente do modo da fila principal. Horario perdido: redistribui pelas proximas janelas.
+- Limite do dia e cursor da agenda passaram a ser por fila; choque de horario continua entre todas.
+- Thumbnail recusada pelo YouTube (403 = canal sem miniaturas personalizadas) vira `Publication.Warning`, mostrado no painel e no aviso do Telegram; antes so ia para o log.
+- Migracao `YouTubeHorizontal`. Painel: marca "YouTube horizontal", janelas na Agenda, rotulos dos problemas novos.
+- 14 testes novos (212 no total, 4 rodadas seguidas).

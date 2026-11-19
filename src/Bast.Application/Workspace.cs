@@ -8,6 +8,7 @@ public sealed class Workspace
     private static readonly Dictionary<WorkspaceFolder, string> Names = new()
     {
         [WorkspaceFolder.Inbox] = "01 - ENVIAR",
+        [WorkspaceFolder.YouTubeInbox] = "01 - ENVIAR YOUTUBE",
         [WorkspaceFolder.Scheduled] = "02 - AGENDADOS",
         [WorkspaceFolder.Publishing] = "03 - PUBLICANDO",
         [WorkspaceFolder.Sent] = "04 - ENVIADOS",

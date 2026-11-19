@@ -73,6 +73,7 @@ public static class NotificationOutbox
                 case PublicationState.Published:
                     text.Append("publicado");
                     if (!string.IsNullOrEmpty(publication.ExternalUrl)) text.Append('\n').Append(publication.ExternalUrl);
+                    if (!string.IsNullOrEmpty(publication.Warning)) text.Append("\n⚠️ ").Append(publication.Warning);
                     break;
                 case PublicationState.Failed:
                     text.Append("falhou");

@@ -57,6 +57,8 @@ const ISSUE_LABEL = {
   Duplicate: 'Vídeo repetido',
   ToolUnavailable: 'ffmpeg indisponível',
   MoveFailed: 'Não foi possível mover a pasta',
+  MissingThumbnail: 'Sem thumbnail',
+  NotHorizontal: 'Vídeo não é horizontal',
 };
 
 const NOTIFICATION_KIND = {
@@ -207,7 +209,7 @@ function derive(data) {
     }
   }
 
-  const awaitingTime = pending.filter(v => v.state === 'Ready' && !v.scheduledAtUtc
+  const awaitingTime = pending.filter(v => v.lane !== 'YouTubeHorizontal' && v.state === 'Ready' && !v.scheduledAtUtc
     && (v.publications.length === 0 || v.publications.some(p => p.state === 'Scheduled')));
   const reauth = (data.accounts || []).filter(a => a.status === 'NeedsReauth');
   const next = pending.filter(v => v.scheduledAtUtc).sort((a, b) => a.scheduledAtUtc.localeCompare(b.scheduledAtUtc))[0] || null;
@@ -255,6 +257,7 @@ function publicationRow(publication) {
       publication.lastError && publication.state !== 'Published'
         ? h('div', { class: publication.state === 'Failed' ? 'error-text' : '', text: publication.lastError })
         : null,
+      publication.warning ? h('div', { class: 'warn-text', text: '⚠ ' + publication.warning }) : null,
       waitingYou
         ? h('div', { class: 'top-actions' },
           h('span', { class: 'small', text: 'Vídeo e legenda enviados ao seu Telegram.' }),
@@ -271,8 +274,10 @@ function videoItem(video, options = {}) {
   const awaiting = state.view.awaitingTime.includes(video);
   const [label, kind] = awaiting ? ['Aguardando horário', 'warn'] : VIDEO_STATE[video.state] || [video.state, ''];
   const manual = state.data.schedule.mode === 'Manual';
+  const horizontal = video.lane === 'YouTubeHorizontal';
   const when = video.scheduledAtUtc
     ? `${fmtDateTime(video.scheduledAtUtc)}${FINAL_VIDEO.has(video.state) ? '' : ' (' + relative(video.scheduledAtUtc) + ')'}`
+    : horizontal && video.state === 'Ready' ? 'Sem horário: aguardando o YouTube estar conectado.'
     : awaiting && manual ? 'Escolha quando publicar.'
       : awaiting ? 'Sem horário. Escolha um horário ou espere a agenda automática.'
         : 'sem horário: nenhuma rede conectada ou habilitada';
@@ -292,6 +297,7 @@ function videoItem(video, options = {}) {
         h('div', { class: 'title', text: video.folderName }),
         h('div', { class: 'muted small', text: when })),
       h('div', { class: 'top-actions' },
+        horizontal ? pill('YouTube horizontal', 'info') : null,
         pill(label, kind),
         options.cancel && timeEditable && !showPicker && video.scheduledAtUtc
           ? h('button', {
@@ -316,8 +322,8 @@ function videoItem(video, options = {}) {
 }
 
 /** Quantos vídeos já estão marcados no dia (fuso da agenda), sem contar o próprio vídeo. */
-function videosOnDay(date, exceptId) {
-  return (state.data.queue || []).filter(v => v.id !== exceptId && v.scheduledAtUtc
+function videosOnDay(date, exceptId, lane) {
+  return (state.data.queue || []).filter(v => v.id !== exceptId && v.scheduledAtUtc && (v.lane || 'Standard') === lane
     && ['Ready', 'Publishing', 'Published'].includes(v.state)
     && localParts(v.scheduledAtUtc).date === date).length;
 }
@@ -325,7 +331,9 @@ function videosOnDay(date, exceptId) {
 /** Escolha de data e hora de publicação, no fuso da agenda. */
 function timePicker(video) {
   const schedule = state.data.schedule;
-  const limit = schedule.mode === 'Manual' ? schedule.manualMaxPerDay : schedule.maxPerDay;
+  const lane = video.lane || 'Standard';
+  const limit = lane === 'YouTubeHorizontal' ? schedule.horizontalPerDay
+    : schedule.mode === 'Manual' ? schedule.manualMaxPerDay : schedule.maxPerDay;
   const now = localParts(new Date().toISOString());
   const draft = state.timeDrafts[video.id]
     || (video.scheduledAtUtc ? localParts(video.scheduledAtUtc) : { date: now.date, time: '' });
@@ -335,7 +343,7 @@ function timePicker(video) {
   const hint = h('span', { class: 'small muted' });
   const update = () => {
     state.timeDrafts[video.id] = { date: dateInput.value, time: timeInput.value };
-    const count = dateInput.value ? videosOnDay(dateInput.value, video.id) : 0;
+    const count = dateInput.value ? videosOnDay(dateInput.value, video.id, lane) : 0;
     hint.textContent = dateInput.value ? `Nesse dia: ${count} de ${limit} vídeo(s).` : '';
     hint.className = 'small ' + (count >= limit ? 'error-text' : 'muted');
   };
@@ -432,7 +440,7 @@ function renderOverview() {
     card('Contas', accounts),
     card('Próximos na fila', view.pending.length
       ? view.pending.slice(0, 3).map(v => videoItem(v))
-      : emptyText('Nada na fila. Coloque uma pasta com video.mp4 e legenda.txt em "01 - ENVIAR".')),
+      : emptyText('Nada na fila. Coloque uma pasta com video.mp4 e legenda.txt em "01 - ENVIAR", ou um vídeo horizontal com legenda.txt e thumbnail em "01 - ENVIAR YOUTUBE".')),
     card('Últimos finalizados', view.done.length ? view.done.slice(0, 3).map(v => videoItem(v)) : emptyText('Nenhum vídeo finalizado ainda.')),
   ];
 }
@@ -573,6 +581,12 @@ function renderSchedule() {
       h('fieldset', {}, h('legend', { text: 'Dias da semana' }),
         h('div', { class: 'checks' }, DAYS.map(([value, label]) => h('label', {},
           h('input', { type: 'checkbox', name: 'days', value, checked: s.days.includes(value) }), label)))),
+      h('fieldset', {}, h('legend', { text: 'Vídeos horizontais (pasta 01 - ENVIAR YOUTUBE, só YouTube)' }),
+        h('div', { class: 'fields' },
+          field('Primeira janela', h('input', { type: 'time', name: 'horizontalStartTime', value: s.horizontalStartTime, required: true })),
+          field('Última janela', h('input', { type: 'time', name: 'horizontalEndTime', value: s.horizontalEndTime, required: true })),
+          field('Vídeos por dia', number('horizontalPerDay', s.horizontalPerDay, 1, 48))),
+        h('p', { class: 'muted small', text: `Janelas de hoje em diante: ${(state.data.schedule.horizontalTimes || []).join(', ')}. Cada vídeo pega a próxima janela livre, um por janela, todos os dias. Pasta precisa de vídeo horizontal, legenda.txt e thumbnail.` })),
       h('fieldset', {}, h('legend', { text: 'Redes que recebem publicações' }),
         h('div', { class: 'checks' }, PLATFORMS.map(platform => h('label', {},
           h('input', { type: 'checkbox', name: 'platforms', value: platform, checked: s.platforms.includes(platform) }),
@@ -605,6 +619,9 @@ function renderSchedule() {
       maxAttempts: Number(values.get('maxAttempts')),
       mode: values.get('mode'),
       manualMaxPerDay: Number(values.get('manualMaxPerDay')),
+      horizontalStartTime: values.get('horizontalStartTime'),
+      horizontalEndTime: values.get('horizontalEndTime'),
+      horizontalPerDay: Number(values.get('horizontalPerDay')),
     };
     if (state.busy) return;
     state.busy = true;

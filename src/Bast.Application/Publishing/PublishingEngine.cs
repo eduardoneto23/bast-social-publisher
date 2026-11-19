@@ -231,6 +231,7 @@ public sealed class PublishingEngine(
         var now = Now;
         if (outcome.ExternalId is not null) publication.ExternalId = outcome.ExternalId;
         if (outcome.Url is not null) publication.ExternalUrl = outcome.Url;
+        if (outcome.Warning is not null) publication.Warning = outcome.Warning;
 
         var kind = outcome.Kind;
         // Só uma consulta pode afirmar que a plataforma não tem a publicação.

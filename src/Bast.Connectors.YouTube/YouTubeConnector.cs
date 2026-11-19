@@ -94,10 +94,13 @@ public sealed class YouTubeConnector(
             }
 
             await request.SaveExternalIdAsync(videoId);
-            if (request.ThumbnailPath is not null) await TrySetThumbnailAsync(videoId, request.ThumbnailPath, ct);
+            var thumbnailProblem = request.ThumbnailPath is null ? null : await TrySetThumbnailAsync(videoId, request.ThumbnailPath, ct);
 
             // O upload terminou, mas só a consulta do estado final confirma a publicação.
-            return PublishOutcome.Processing(videoId, TimeSpan.FromSeconds(20));
+            return PublishOutcome.Processing(videoId, TimeSpan.FromSeconds(20)) with
+            {
+                Warning = thumbnailProblem is null ? null : $"A thumbnail não foi aplicada: {thumbnailProblem} O vídeo foi enviado com a imagem automática do YouTube.",
+            };
         }
         catch (AuthRequiredException ex)
         {
@@ -293,11 +296,12 @@ public sealed class YouTubeConnector(
         }
     }
 
-    private async Task TrySetThumbnailAsync(string videoId, string thumbnailPath, CancellationToken ct)
+    /// <returns>Nulo quando a thumbnail foi aplicada; senão, o motivo.</returns>
+    private async Task<string?> TrySetThumbnailAsync(string videoId, string thumbnailPath, CancellationToken ct)
     {
         try
         {
-            if (!File.Exists(thumbnailPath)) return;
+            if (!File.Exists(thumbnailPath)) return "o arquivo da imagem não foi encontrado.";
             using var message = new HttpRequestMessage(HttpMethod.Post, ThumbnailEndpoint + Uri.EscapeDataString(videoId))
             {
                 Content = new ByteArrayContent(await File.ReadAllBytesAsync(thumbnailPath, ct)),
@@ -309,11 +313,18 @@ public sealed class YouTubeConnector(
             {
                 var failure = await FailureAsync(response, ct);
                 logger.LogWarning("YouTube: a thumbnail do vídeo {VideoId} não foi aplicada ({Reason}). O vídeo foi enviado normalmente.", videoId, failure.Error);
+                // 403 nesse pedido é o caso documentado de canal sem permissão para miniaturas personalizadas.
+                return response.StatusCode == HttpStatusCode.Forbidden
+                    ? $"o YouTube recusou ({failure.Error}). Miniaturas personalizadas exigem o canal verificado (youtube.com/verify)."
+                    : $"o YouTube recusou ({failure.Error}).";
             }
+
+            return null;
         }
         catch (Exception ex) when (ex is AuthRequiredException or IOException || IsConnectivity(ex, ct))
         {
             logger.LogWarning("YouTube: a thumbnail do vídeo {VideoId} não foi aplicada ({Reason}).", videoId, ex.Message);
+            return "falha ao enviar a imagem.";
         }
     }
 
