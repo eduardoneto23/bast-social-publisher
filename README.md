@@ -11,8 +11,8 @@ Você prepara o vídeo, escreve a legenda em um arquivo de texto, coloca tudo em
 | YouTube | Funcionando (vídeos e Shorts), pela API oficial |
 | Instagram | Funcionando (Reels), pela API oficial. Ver [docs/CONECTAR-META.md](docs/CONECTAR-META.md) |
 | Facebook | Funcionando (Reels de Página), pela API oficial |
-| Threads | Planejado |
-| TikTok | A API oficial não permite publicação pública automática para ferramenta de uso próprio; ver [docs/APIS.md](docs/APIS.md) |
+| Threads | Implementado e testado com a API real (contêiner aceito). O vídeo vai por um link temporário do Cloudflare, aberto só durante o envio; precisa do `cloudflared`. Ver [docs/CONECTAR-THREADS.md](docs/CONECTAR-THREADS.md) |
+| TikTok | Modo assistido: a API oficial não permite publicação pública automática para ferramenta de uso próprio, então no horário o vídeo e a legenda chegam pelo Telegram e você publica no app. Ver [docs/TIKTOK.md](docs/TIKTOK.md) |
 
 Avisos de publicação, falha e reconexão podem chegar no seu celular por um bot do Telegram: ver [docs/CONECTAR-TELEGRAM.md](docs/CONECTAR-TELEGRAM.md).
 
@@ -161,6 +161,22 @@ Abra no navegador:
 
 ## Agenda
 
+Há dois modos, escolhidos no painel, aba **Agenda**:
+
+- **Automático**: cada vídeo novo recebe o próximo horário livre da agenda abaixo.
+- **Manual**: o vídeo importado fica **aguardando horário** e só é publicado quando você escolhe a data e a hora no painel, aba **Fila**. O limite padrão é de 3 vídeos por dia (no fuso da agenda), contando os já publicados naquele dia. Dois vídeos não podem ficar no mesmo minuto. Se chegar um vídeo novo, o aviso vai para o Telegram.
+
+Nos dois modos dá para mudar o horário de um vídeo que ainda não começou a publicar (botão **Mudar horário**), ou publicar na hora (**Publicar agora**). Pela API:
+
+```powershell
+$corpo = @{ localTime = '2026-11-20T14:30' } | ConvertTo-Json   # data e hora no fuso da agenda
+Invoke-RestMethod http://127.0.0.1:5080/api/videos/ID-DO-VIDEO/time -Method Post -ContentType 'application/json' -Body $corpo
+```
+
+No modo manual, se o computador estiver desligado no horário escolhido e passar da tolerância de atraso, o vídeo **não** é publicado depois: ele volta a aguardar horário e você recebe um aviso.
+
+### Modo automático
+
 O padrão é publicar às 10:00, 14:00, 18:00 e 22:00 (início às 10:00, intervalo de 4 horas), todos os dias, no fuso de São Paulo. Para mudar:
 
 ```powershell
@@ -170,6 +186,7 @@ $agenda = @{
   timeZoneId = 'America/Sao_Paulo'
   platforms = @('YouTube')
   missedPolicy = 'NextAllowedSlot'; missedGraceMinutes = 30; maxAttempts = 5
+  mode = 'Automatic'; manualMaxPerDay = 3   # opcionais: sem eles, o modo salvo é mantido
 } | ConvertTo-Json
 Invoke-RestMethod http://127.0.0.1:5080/api/settings/schedule -Method Put -ContentType 'application/json' -Body $agenda
 ```

@@ -19,6 +19,12 @@ public sealed class BastOptions
     /// <summary>Caminho completo do ffmpeg. Vazio = procurar no PATH.</summary>
     public string FfmpegPath { get; set; } = "";
 
+    /// <summary>
+    /// Caminho completo do cloudflared, usado para o Threads buscar o vídeo. Vazio = SYSTEM\tools\cloudflared.exe
+    /// dentro da pasta principal.
+    /// </summary>
+    public string CloudflaredPath { get; set; } = "";
+
     /// <summary>Intervalo do ciclo do motor de publicação.</summary>
     public int EngineIntervalSeconds { get; set; } = 10;
 

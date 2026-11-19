@@ -9,12 +9,26 @@ public enum MissedSlotPolicy
     NextCycle,
 }
 
+/// <summary>Como os vídeos recebem horário.</summary>
+public enum ScheduleMode
+{
+    /// <summary>O sistema reserva o próximo horário livre (início, intervalo, máximo por dia).</summary>
+    Automatic,
+    /// <summary>O vídeo espera o usuário escolher o horário no painel.</summary>
+    Manual,
+}
+
 /// <summary>Regras de operação configuradas uma única vez pelo usuário. Existe uma única linha (Id = 1).</summary>
 public sealed class ScheduleSettings
 {
     public const int SingletonId = 1;
 
     public int Id { get; set; } = SingletonId;
+
+    public ScheduleMode Mode { get; set; } = ScheduleMode.Automatic;
+
+    /// <summary>No modo manual, quantos vídeos podem ser marcados para o mesmo dia (no fuso configurado).</summary>
+    public int ManualMaxPerDay { get; set; } = 3;
 
     /// <summary>Horário da primeira publicação do dia, no fuso configurado.</summary>
     public TimeOnly StartTime { get; set; } = new(10, 0);
@@ -42,6 +56,9 @@ public sealed class ScheduleSettings
     public bool Paused { get; set; }
     public DateTime UpdatedAtUtc { get; set; }
 
+    /// <summary>Limite de vídeos por dia que vale para horários escolhidos à mão.</summary>
+    public int ChosenTimeMaxPerDay => Mode == ScheduleMode.Manual ? ManualMaxPerDay : MaxPerDay;
+
     public bool IsDayEnabled(DayOfWeek day) => (DaysMask & (1 << (int)day)) != 0;
 
     public bool IsPlatformEnabled(Platform platform) => (PlatformsMask & (1 << (int)platform)) != 0;
@@ -60,6 +77,7 @@ public sealed class ScheduleSettings
         var problems = new List<string>();
         if (IntervalMinutes < 1) problems.Add("O intervalo entre vídeos deve ser de pelo menos 1 minuto.");
         if (MaxPerDay < 1) problems.Add("A quantidade máxima por dia deve ser de pelo menos 1.");
+        if (ManualMaxPerDay < 1) problems.Add("A quantidade máxima por dia no modo manual deve ser de pelo menos 1.");
         if ((DaysMask & 0b111_1111) == 0) problems.Add("Selecione pelo menos um dia da semana.");
         if (EndTime < StartTime) problems.Add("O último horário permitido não pode ser anterior ao horário inicial.");
         if (MissedGraceMinutes < 0) problems.Add("A tolerância de atraso não pode ser negativa.");

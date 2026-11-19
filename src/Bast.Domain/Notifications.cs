@@ -8,6 +8,8 @@ public enum NotificationKind
     PublicationUnknown,
     AccountNeedsReauth,
     ImportIssue,
+    /// <summary>Modo manual: o vídeo espera o usuário escolher o horário.</summary>
+    TimeNeeded,
     Test,
 }
 

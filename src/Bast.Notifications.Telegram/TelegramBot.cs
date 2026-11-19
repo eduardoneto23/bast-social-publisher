@@ -12,6 +12,13 @@ public sealed record TelegramStatus(bool HasToken, bool Connected, string? Bot, 
 
 public sealed record TelegramResult(bool Ok, string Message);
 
+public sealed record TelegramButton(string Text, string CallbackData);
+
+public sealed record TelegramSent(ChannelSendStatus Status, long? MessageId, string? Error, TimeSpan? RetryAfter = null);
+
+/// <param name="FromLinkedChat">Verdadeiro só quando o toque veio da conversa privada vinculada.</param>
+public sealed record TelegramCallback(string Id, string Data, long? MessageId, bool FromLinkedChat);
+
 /// <summary>
 /// Avisos por um bot do Telegram do próprio usuário (Bot API oficial).
 ///
@@ -25,6 +32,8 @@ public sealed record TelegramResult(bool Ok, string Message);
 public sealed partial class TelegramBot(IHttpClientFactory httpFactory, ISecretStore secrets, ILogger<TelegramBot> logger) : INotificationChannel
 {
     public const string HttpClientName = "telegram";
+    /// <summary>Para envio de arquivos e espera longa por botões: prazo maior que o do cliente de avisos.</summary>
+    public const string UploadClientName = "telegram-upload";
     internal const string SecretKey = "telegram.bot";
     internal const string ApiBase = "https://api.telegram.org";
     private const int MaxTextLength = 4096;
@@ -116,6 +125,126 @@ public sealed partial class TelegramBot(IHttpClientFactory httpFactory, ISecretS
         return new(true, $"Avisos conectados à conversa de {chatName ?? "um usuário"}.");
     }
 
+    /// <summary>Limite de envio de arquivos por bot na Bot API em nuvem (multipart/form-data).</summary>
+    public const long MaxUploadBytes = 50L * 1024 * 1024;
+
+    /// <summary>Envia um arquivo como documento, preservando o original. Devolve o id da mensagem.</summary>
+    public async Task<TelegramSent> SendDocumentAsync(string path, string fileName, string caption, CancellationToken ct)
+    {
+        var settings = Current;
+        if (settings?.ChatId is null) return new(ChannelSendStatus.Rejected, null, "O Telegram não está conectado.");
+        if (caption.Length > 1024) caption = caption[..1023] + "…";
+
+        try
+        {
+            await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16, FileOptions.Asynchronous);
+            using var form = new MultipartFormDataContent();
+            form.Add(new StringContent(settings.ChatId.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)), "chat_id");
+            form.Add(new StringContent(caption), "caption");
+            form.Add(new StringContent("true"), "disable_content_type_detection");
+            var file = new StreamContent(stream);
+            file.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
+            form.Add(file, "document", fileName);
+            var (result, error) = await CallAsync(settings.Token, "sendDocument", form, ct, UploadClientName);
+            return ToSent(result, error);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException || (ex is OperationCanceledException && !ct.IsCancellationRequested))
+        {
+            return new(ChannelSendStatus.Retry, null, "Sem conexão com o Telegram.");
+        }
+    }
+
+    /// <summary>Mensagem com botões de resposta (callback). Devolve o id da mensagem.</summary>
+    public async Task<TelegramSent> SendWithButtonsAsync(string text, IReadOnlyList<TelegramButton> buttons, CancellationToken ct)
+    {
+        var settings = Current;
+        if (settings?.ChatId is null) return new(ChannelSendStatus.Rejected, null, "O Telegram não está conectado.");
+        if (text.Length > MaxTextLength) text = text[..(MaxTextLength - 1)] + "…";
+
+        try
+        {
+            var (result, error) = await CallAsync(settings.Token, "sendMessage", new
+            {
+                chat_id = settings.ChatId,
+                text,
+                link_preview_options = new { is_disabled = true },
+                reply_markup = new { inline_keyboard = new[] { buttons.Select(b => new { text = b.Text, callback_data = b.CallbackData }).ToArray() } },
+            }, ct);
+            return ToSent(result, error);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException || (ex is OperationCanceledException && !ct.IsCancellationRequested))
+        {
+            return new(ChannelSendStatus.Retry, null, "Sem conexão com o Telegram.");
+        }
+    }
+
+    private long _updateOffset;
+
+    /// <summary>
+    /// Botões tocados na conversa vinculada (getUpdates com espera longa). Toques de outras conversas são
+    /// descartados. Cada chamada confirma as atualizações anteriores ao Telegram.
+    /// </summary>
+    public async Task<IReadOnlyList<TelegramCallback>> ReadCallbacksAsync(TimeSpan wait, CancellationToken ct)
+    {
+        var settings = Current;
+        if (settings?.ChatId is null) return [];
+
+        var (updates, error) = await CallAsync(settings.Token, "getUpdates",
+            new { offset = _updateOffset, limit = 100, timeout = (int)wait.TotalSeconds, allowed_updates = new[] { "callback_query" } }, ct, UploadClientName);
+        if (error is not null || updates.ValueKind != JsonValueKind.Array) return [];
+
+        var found = new List<TelegramCallback>();
+        foreach (var update in updates.EnumerateArray())
+        {
+            if (update.TryGetProperty("update_id", out var uid) && uid.TryGetInt64(out var updateId)) _updateOffset = Math.Max(_updateOffset, updateId + 1);
+            if (!update.TryGetProperty("callback_query", out var query)) continue;
+            var id = query.TryGetProperty("id", out var qid) ? qid.GetString() : null;
+            var data = query.TryGetProperty("data", out var d) ? d.GetString() : null;
+            var fromId = query.TryGetProperty("from", out var from) && from.TryGetProperty("id", out var fid) && fid.TryGetInt64(out var f) ? f : (long?)null;
+            long? chatId = null, messageId = null;
+            if (query.TryGetProperty("message", out var message))
+            {
+                if (message.TryGetProperty("chat", out var chat) && chat.TryGetProperty("id", out var cid) && cid.TryGetInt64(out var c)) chatId = c;
+                if (message.TryGetProperty("message_id", out var mid) && mid.TryGetInt64(out var m)) messageId = m;
+            }
+
+            if (id is null || data is null) continue;
+            var fromLinkedChat = chatId == settings.ChatId && fromId == settings.ChatId;
+            found.Add(new TelegramCallback(id, data, messageId, fromLinkedChat));
+        }
+
+        return found;
+    }
+
+    /// <summary>Responde ao toque no botão (obrigatório: sem isso o Telegram mostra carregando).</summary>
+    public async Task AnswerCallbackAsync(string callbackId, string text, CancellationToken ct)
+    {
+        var settings = Current;
+        if (settings is null) return;
+        await CallAsync(settings.Token, "answerCallbackQuery", new { callback_query_id = callbackId, text = text.Length > 200 ? text[..200] : text }, ct);
+    }
+
+    /// <summary>Troca o texto de uma mensagem e remove os botões dela.</summary>
+    public async Task EditTextAsync(long messageId, string text, CancellationToken ct)
+    {
+        var settings = Current;
+        if (settings?.ChatId is null) return;
+        await CallAsync(settings.Token, "editMessageText", new { chat_id = settings.ChatId, message_id = messageId, text }, ct);
+    }
+
+    private static TelegramSent ToSent(JsonElement result, TelegramError? error)
+    {
+        if (error is null)
+        {
+            return new(ChannelSendStatus.Sent,
+                result.ValueKind == JsonValueKind.Object && result.TryGetProperty("message_id", out var id) && id.TryGetInt64(out var m) ? m : null, null);
+        }
+
+        if (error.Code == 429) return new(ChannelSendStatus.Retry, null, $"Telegram: limite de envio atingido ({error.Description}).", error.RetryAfter);
+        if (error.Code >= 500) return new(ChannelSendStatus.Retry, null, $"Telegram indisponível ({error.Description}).");
+        return new(ChannelSendStatus.Rejected, null, $"O Telegram recusou a mensagem ({error.Code}: {error.Description}).");
+    }
+
     public Task<ChannelSendResult> SendAsync(string text, CancellationToken ct)
     {
         var settings = Current;
@@ -162,11 +291,16 @@ public sealed partial class TelegramBot(IHttpClientFactory httpFactory, ISecretS
 
     private sealed record TelegramError(int Code, string Description, TimeSpan? RetryAfter);
 
-    private async Task<(JsonElement Result, TelegramError? Error)> CallAsync(string token, string method, object? body, CancellationToken ct)
+    private async Task<(JsonElement Result, TelegramError? Error)> CallAsync(string token, string method, object? body, CancellationToken ct, string client = HttpClientName)
     {
-        var http = httpFactory.CreateClient(HttpClientName);
+        var http = httpFactory.CreateClient(client);
         var url = $"{ApiBase}/bot{token}/{method}";
-        using var response = body is null ? await http.GetAsync(url, ct) : await http.PostAsJsonAsync(url, body, ct);
+        using var response = body switch
+        {
+            null => await http.GetAsync(url, ct),
+            HttpContent content => await http.PostAsync(url, content, ct),
+            _ => await http.PostAsJsonAsync(url, body, ct),
+        };
         var raw = await response.Content.ReadAsStringAsync(ct);
 
         JsonElement root = default;
@@ -202,9 +336,16 @@ public static class TelegramServiceCollectionExtensions
     {
         // Sem log de pedidos HTTP: o endereço da Bot API contém o token do bot.
         services.AddHttpClient(TelegramBot.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(30)).RemoveAllLoggers();
+        services.AddHttpClient(TelegramBot.UploadClientName, client => client.Timeout = TimeSpan.FromMinutes(10)).RemoveAllLoggers();
         services.AddSingleton<TelegramBot>();
         services.AddSingleton<INotificationChannel>(sp => sp.GetRequiredService<TelegramBot>());
         services.AddSingleton<NotificationDispatcher>();
+
+        // TikTok assistido: entregue pelo mesmo bot. Ver TikTokAssistedConnector.
+        services.AddSingleton<Bast.Application.Publishing.ManualPublishing>();
+        services.AddSingleton<TikTokAssistedConnector>();
+        services.AddSingleton<Bast.Application.Publishing.IPlatformConnector>(sp => sp.GetRequiredService<TikTokAssistedConnector>());
+        services.AddSingleton<TelegramButtonsHandler>();
         return services;
     }
 }

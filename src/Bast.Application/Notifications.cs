@@ -96,6 +96,12 @@ public static class NotificationOutbox
         $"🔑 {platform}: é preciso conectar a conta de novo.\n{error}\n" +
         "As publicações dessa rede ficam em espera, sem gastar tentativas, até a reconexão.";
 
+    public static string TimeNeeded(string folderName) =>
+        $"🕒 Aguardando horário: {folderName}\nAbra o painel, aba Fila, e escolha quando publicar.";
+
+    public static string ChosenTimeMissed(string folderName) =>
+        $"⏰ Horário perdido: {folderName}\nO computador ou o serviço estava parado no horário escolhido. O vídeo não foi publicado e voltou a aguardar horário no painel.";
+
     public static string ImportIssue(string folderName, string message, string? movedToPath) =>
         $"📁 Pasta com problema: {folderName}\n{message}" + (movedToPath is null ? "" : $"\nMovida para: {movedToPath}");
 }

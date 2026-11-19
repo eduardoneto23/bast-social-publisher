@@ -38,6 +38,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ImportService>();
 
         services.AddSingleton<ISecretStore, DpapiSecretStore>();
+        services.AddSingleton<IPublicFileShare, CloudflaredFileShare>();
         services.AddSingleton<AccountService>();
         services.AddSingleton<IConnectorRegistry, ConnectorRegistry>();
         services.AddSingleton<SchedulingService>();

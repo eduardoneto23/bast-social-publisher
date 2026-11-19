@@ -69,6 +69,80 @@ public sealed class NotificationWorker(NotificationDispatcher dispatcher, ILogge
     }
 }
 
+/// <summary>
+/// Renova o token de 60 dias do Threads mesmo sem publicações, para a conta não cair por falta de uso.
+/// </summary>
+public sealed class ThreadsTokenWorker(Bast.Connectors.Meta.ThreadsAuth threads, ILogger<ThreadsTokenWorker> logger) : BackgroundService
+{
+    private static readonly TimeSpan Interval = TimeSpan.FromHours(6);
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                await threads.RenewIfNeededAsync(stoppingToken);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                // Só o tipo: a mensagem de uma falha de rede poderia citar o endereço, que leva o token.
+                logger.LogWarning("Threads: falha ao renovar o token ({Type}); nova tentativa mais tarde.", ex.GetType().Name);
+            }
+
+            try
+            {
+                await Task.Delay(Interval, stoppingToken);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+        }
+    }
+}
+
+/// <summary>Escuta os botões do Telegram ("Publiquei" / "Não vou publicar") do TikTok assistido.</summary>
+public sealed class TelegramButtonsWorker(Bast.Notifications.Telegram.TelegramBot telegram, Bast.Notifications.Telegram.TelegramButtonsHandler handler,
+    ILogger<TelegramButtonsWorker> logger) : BackgroundService
+{
+    private static readonly TimeSpan LongPoll = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan Idle = TimeSpan.FromSeconds(30);
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                if (telegram.IsConfigured) await handler.RunOnceAsync(LongPoll, stoppingToken);
+                else await Task.Delay(Idle, stoppingToken);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                // Só o tipo: a mensagem de uma falha de rede poderia citar o endereço, que leva o token do bot.
+                logger.LogWarning("Telegram: falha ao ler os botões ({Type}); nova tentativa em instantes.", ex.GetType().Name);
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+            }
+        }
+    }
+}
+
 /// <summary>Ciclo do motor: agenda, publica o que venceu, confirma pendências e ajusta as pastas.</summary>
 public sealed class PublishingWorker(PublishingEngine engine, BastOptions options, ILogger<PublishingWorker> logger) : BackgroundService
 {

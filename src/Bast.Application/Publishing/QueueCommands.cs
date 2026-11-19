@@ -14,7 +14,9 @@ public sealed record ScheduleSettingsInput(
     Platform[] Platforms,
     MissedSlotPolicy MissedPolicy,
     int MissedGraceMinutes,
-    int MaxAttempts);
+    int MaxAttempts,
+    ScheduleMode? Mode = null,
+    int? ManualMaxPerDay = null);
 
 /// <summary>Controles do usuário sobre a fila: configurar, pausar, retomar e cancelar.</summary>
 public sealed class QueueCommands(IDbContextFactory<BastDbContext> factory, SchedulingService scheduling, TimeProvider time)
@@ -42,6 +44,9 @@ public sealed class QueueCommands(IDbContextFactory<BastDbContext> factory, Sche
         settings.MissedPolicy = input.MissedPolicy;
         settings.MissedGraceMinutes = input.MissedGraceMinutes;
         settings.MaxAttempts = input.MaxAttempts;
+        // Opcionais: quem não informa (scripts antigos) mantém o que está salvo.
+        if (input.Mode is { } mode && Enum.IsDefined(mode)) settings.Mode = mode;
+        if (input.ManualMaxPerDay is { } manualMax) settings.ManualMaxPerDay = manualMax;
         settings.UpdatedAtUtc = Now;
 
         var problems = settings.Validate();
@@ -77,7 +82,7 @@ public sealed class QueueCommands(IDbContextFactory<BastDbContext> factory, Sche
         int cancelled = 0, blocked = 0;
         foreach (var publication in video.Publications.Where(p => !PublicationStateMachine.IsTerminal(p.State)))
         {
-            if (PublicationStateMachine.CanTransition(publication.State, PublicationState.Cancelled))
+            if (publication.State != PublicationState.Processing && PublicationStateMachine.CanTransition(publication.State, PublicationState.Cancelled))
             {
                 publication.TransitionTo(PublicationState.Cancelled, now);
                 cancelled++;
@@ -103,6 +108,13 @@ public sealed class QueueCommands(IDbContextFactory<BastDbContext> factory, Sche
         var video = await db.Videos.Include(v => v.Publications).FirstOrDefaultAsync(v => v.Id == videoId, ct);
         if (video is null) return null;
         if (video.State != VideoState.Ready) return 0;
+
+        // Modo manual: vídeo ainda sem horário nem publicações recebe as publicações agora.
+        if (video.Publications.Count == 0)
+        {
+            await db.DisposeAsync();
+            return await scheduling.ScheduleNowAsync(videoId, ct);
+        }
 
         var now = Now;
         var waiting = video.Publications.Where(p => p.State == PublicationState.Scheduled).ToList();

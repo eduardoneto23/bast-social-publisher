@@ -46,7 +46,12 @@ Levantamento feito na documentação oficial em 2026-11-14. Reverificar cada ite
 ## Threads
 
 - `POST /{user-id}/threads` com `media_type=VIDEO` e `video_url`, aguardar processamento, `POST /{user-id}/threads_publish`.
-- Não existe upload direto: mesmo no modo local é necessário armazenamento com URL temporária.
+- Não existe upload direto: mesmo no modo local é necessário um endereço público. Solução adotada: link temporário do arquivo original pelo túnel rápido do Cloudflare, fechado quando o contêiner sai de `IN_PROGRESS` (ver [CONECTAR-THREADS.md](CONECTAR-THREADS.md)).
+- Status do contêiner: `GET /{container-id}?fields=status,error_message`; valores `IN_PROGRESS`, `FINISHED`, `ERROR`, `EXPIRED`, `PUBLISHED`. Consultar uma vez por minuto, por até 5 minutos; esperar ~30 s antes de publicar.
+- Token: código (1 h, uso único) -> curta duração (1 h) -> `th_exchange_token` (60 dias) -> `th_refresh_token` (token com mais de 24 h e não vencido). Permissão concedida dura 90 dias; a renovação só a estende para perfis públicos.
+- O app tem ID e chave próprios do Threads, diferentes dos do app principal.
+- `media_url` do IG Media é omitido quando o vídeo tem áudio protegido por direitos autorais, mesmo para o dono.
+- Testado em 17/11/2026: o Threads recusa o arquivo do Reel do Instagram/Facebook (`ERROR`, `error_message=UNKNOWN`, cópia 720p com áudio HE-AAC), aceita o original pelo túnel e um vídeo público qualquer. O Threads baixa o arquivo uma vez (GET sem Range, agente `facebookexternalhit/1.1`).
 
 ## TikTok
 
@@ -57,10 +62,10 @@ Levantamento feito na documentação oficial em 2026-11-14. Reverificar cada ite
 
 ## Não verificado
 
-- Validade e renovação dos tokens do Threads e do TikTok.
+- Validade e renovação dos tokens do TikTok.
+- Formato do erro do Threads para token inválido (a documentação não traz) e se `http://localhost` é aceito como endereço de retorno.
 - Se um app da Meta em modo Ao vivo, só com acesso padrão, publica conteúdo público para contas de quem tem função no app.
 - Qual token as chamadas do Instagram exigem (a documentação cita Página e usuário).
-- Endpoint e valores de status do contêiner do Threads.
 
 ## Fontes
 

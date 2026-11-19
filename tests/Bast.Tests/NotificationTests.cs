@@ -307,7 +307,17 @@ public sealed class FakeTelegram : HttpMessageHandler, IHttpClientFactory
     public List<JsonElement> Messages { get; } = [];
     public string Updates { get; set; } = "[]";
     public Func<HttpResponseMessage>? SendOverride { get; set; }
+    public Func<HttpResponseMessage>? DocumentOverride { get; set; }
     public bool Offline { get; set; }
+    public List<(string ChatId, string Caption, string? FileName, byte[] Bytes)> Documents { get; } = [];
+    public List<(string Method, JsonElement Body)> Replies { get; } = [];
+
+    public static string Callback(long updateId, long chatId, long fromId, string data, long messageId = 10) =>
+        JsonSerializer.Serialize(new
+        {
+            update_id = updateId,
+            callback_query = new { id = $"cb{updateId}", from = new { id = fromId }, message = new { message_id = messageId, chat = new { id = chatId, type = "private" } }, data, chat_instance = "x" },
+        });
 
     public HttpClient CreateClient(string name) => new(this, disposeHandler: false);
 
@@ -347,6 +357,27 @@ public sealed class FakeTelegram : HttpMessageHandler, IHttpClientFactory
                 }
 
                 return SendOverride?.Invoke() ?? Json("""{"ok":true,"result":{"message_id":10}}""");
+            case "sendDocument":
+                var form = (MultipartFormDataContent)request.Content!;
+                var parts = new Dictionary<string, byte[]>();
+                string? fileName = null;
+                foreach (var part in form)
+                {
+                    var name = part.Headers.ContentDisposition!.Name!.Trim('"');
+                    parts[name] = await part.ReadAsByteArrayAsync(ct);
+                    if (name == "document") fileName = part.Headers.ContentDisposition.FileName?.Trim('"');
+                }
+
+                Documents.Add((Encoding.UTF8.GetString(parts["chat_id"]), Encoding.UTF8.GetString(parts["caption"]), fileName, parts["document"]));
+                return DocumentOverride?.Invoke() ?? Json("""{"ok":true,"result":{"message_id":9}}""");
+            case "answerCallbackQuery":
+            case "editMessageText":
+                using (var json = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct)))
+                {
+                    Replies.Add((method, json.RootElement.Clone()));
+                }
+
+                return Json("""{"ok":true,"result":true}""");
             default:
                 return Error(404, "Not Found");
         }
@@ -401,10 +432,19 @@ public class TelegramBotTests
 
     private static byte[] ReadShared(string path)
     {
-        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        using var memory = new MemoryStream();
-        stream.CopyTo(memory);
-        return memory.ToArray();
+        // Arquivos temporários do SQLite (-wal, -shm) podem sumir entre a listagem e a leitura.
+        if (!File.Exists(path)) return [];
+        try
+        {
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var memory = new MemoryStream();
+            stream.CopyTo(memory);
+            return memory.ToArray();
+        }
+        catch (FileNotFoundException)
+        {
+            return [];
+        }
     }
 
     [Fact]

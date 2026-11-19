@@ -20,6 +20,10 @@ public enum PublishOutcomeKind
     AuthRequired,
     /// <summary>Sem conexão com a plataforma. Nada foi publicado; aguarda a internet voltar sem gastar tentativas.</summary>
     Offline,
+    /// <summary>Depende de algo ainda não pronto (por exemplo, outra rede publicar antes). Nada foi publicado; espera sem gastar tentativas.</summary>
+    Waiting,
+    /// <summary>Publicação manual: o usuário avisou que não vai publicar nesta rede. Vira CANCELLED.</summary>
+    Skipped,
 }
 
 public sealed record PublishOutcome(PublishOutcomeKind Kind, string? ExternalId = null, string? Url = null, string? Error = null, TimeSpan? RetryAfter = null)
@@ -32,13 +36,21 @@ public sealed record PublishOutcome(PublishOutcomeKind Kind, string? ExternalId 
     public static PublishOutcome NotFound(string? error = null) => new(PublishOutcomeKind.NotFound, Error: error);
     public static PublishOutcome AuthRequired(string error) => new(PublishOutcomeKind.AuthRequired, Error: error);
     public static PublishOutcome Offline(string error) => new(PublishOutcomeKind.Offline, Error: error);
+    public static PublishOutcome Waiting(string reason, TimeSpan checkAfter) => new(PublishOutcomeKind.Waiting, Error: reason, RetryAfter: checkAfter);
+    public static PublishOutcome Skipped(string reason) => new(PublishOutcomeKind.Skipped, Error: reason);
+    /// <summary>Continua aguardando sem mexer no identificador gravado (que outro processo pode estar atualizando).</summary>
+    public static PublishOutcome StillWaiting(TimeSpan checkAfter) => new(PublishOutcomeKind.Processing, RetryAfter: checkAfter);
 }
+
+/// <summary>Situação de outra rede do mesmo vídeo, no momento do pedido.</summary>
+public sealed record SiblingPublication(Platform Platform, PublicationState State, string? ExternalId);
 
 /// <param name="Text">Legenda integral (quebras de linha em LF).</param>
 /// <param name="Title">Título, usado pelo YouTube.</param>
 /// <param name="ExternalId">Identificador já gravado para esta publicação, se houver.</param>
 /// <param name="SaveExternalIdAsync">Grava imediatamente um identificador recebido da plataforma (sessão de upload, contêiner),
 /// antes de continuar, para que uma queda no meio do envio possa ser reconciliada.</param>
+/// <param name="Siblings">As outras redes do mesmo vídeo. Para conectores que dependem de outra rede do mesmo vídeo (hoje nenhum).</param>
 public sealed record PublishRequest(
     Guid PublicationId,
     string IdempotencyKey,
@@ -47,7 +59,8 @@ public sealed record PublishRequest(
     string Text,
     string Title,
     string? ExternalId,
-    Func<string, Task> SaveExternalIdAsync);
+    Func<string, Task> SaveExternalIdAsync,
+    IReadOnlyList<SiblingPublication>? Siblings = null);
 
 /// <summary>Integração com uma plataforma. Cada rede tem a sua, independente das demais.</summary>
 public interface IPlatformConnector

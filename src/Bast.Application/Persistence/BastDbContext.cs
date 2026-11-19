@@ -90,6 +90,7 @@ public sealed class BastDbContext(DbContextOptions<BastDbContext> options) : DbC
             e.HasKey(s => s.Id);
             e.Property(s => s.Id).ValueGeneratedNever();
             e.Property(s => s.MissedPolicy).HasConversion<string>().HasMaxLength(20);
+            e.Property(s => s.Mode).HasConversion<string>().HasMaxLength(20);
             e.Ignore(s => s.Platforms);
             e.Ignore(s => s.Days);
         });

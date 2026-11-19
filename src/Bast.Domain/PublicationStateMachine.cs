@@ -15,7 +15,9 @@ public static class PublicationStateMachine
         [Validating] = [Scheduled, Failed, Cancelled],
         [Scheduled] = [Uploading, Validating, Cancelled],
         [Uploading] = [Processing, Published, RetryWait, Failed, Unknown],
-        [Processing] = [Published, RetryWait, Failed, Unknown],
+        // Processing -> Cancelled só pela publicação manual (o usuário avisou que não vai publicar).
+        // O cancelamento pela fila não usa essa transição: lá, conteúdo em processamento pode já estar na plataforma.
+        [Processing] = [Published, RetryWait, Failed, Unknown, Cancelled],
         [RetryWait] = [Uploading, Failed, Cancelled],
         [Unknown] = [Published, Processing, RetryWait, Failed],
         [Failed] = [Scheduled, Cancelled],

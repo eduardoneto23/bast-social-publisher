@@ -36,6 +36,7 @@ public sealed class FakeMeta : HttpMessageHandler, IHttpClientFactory
     public string ContainerStatus { get; set; } = "FINISHED";
     public Dictionary<string, byte[]> ContainerUploads { get; } = [];
     public bool InstagramPublished { get; private set; }
+    public string? InstagramMediaUrl { get; set; } = "https://cdn.exemplo/reel-1.mp4?oe=ABC";
 
     public Func<HttpRequestMessage, HttpResponseMessage?>? Intercept { get; set; }
 
@@ -143,7 +144,9 @@ public sealed class FakeMeta : HttpMessageHandler, IHttpClientFactory
 
         if (path.EndsWith("/media-1", StringComparison.Ordinal))
         {
-            return Json("""{"permalink":"https://www.instagram.com/reel/ABC123/","id":"media-1"}""");
+            // media_url some quando o Reel tem música protegida (documentação do IG Media).
+            var mediaUrl = InstagramMediaUrl is null ? "" : $",\"media_url\":\"{InstagramMediaUrl}\"";
+            return Json($$"""{"permalink":"https://www.instagram.com/reel/ABC123/","id":"media-1","media_type":"VIDEO"{{mediaUrl}}}""");
         }
 
         var last = path[(path.LastIndexOf('/') + 1)..];

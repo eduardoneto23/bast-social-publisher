@@ -124,7 +124,7 @@ main { padding-top: 18px; padding-bottom: 24px; }
 form .fields { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
 label.field { display: grid; gap: 4px; font-size: .9rem; }
 label.field span { color: var(--muted); }
-input[type=time], input[type=number], select {
+input[type=time], input[type=date], input[type=number], select {
   font: inherit; padding: 7px 9px; border-radius: 8px; border: 1px solid var(--border);
   background: var(--surface); color: var(--text); width: 100%;
 }
@@ -142,3 +142,7 @@ footer { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wr
 @media (max-width: 560px) {
   .pub { grid-template-columns: 1fr; gap: 2px; }
 }
+
+/* Escolha de horário na Fila */
+.time-picker { flex-wrap: wrap; margin-top: 10px; padding: 10px 12px; border: 1px dashed var(--border); border-radius: var(--radius); }
+.time-picker input[type=date], .time-picker input[type=time] { width: auto; }

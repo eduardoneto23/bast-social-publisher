@@ -5,6 +5,7 @@ using Bast.Application.Publishing;
 using Bast.Domain;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Http;
 using Microsoft.Extensions.Options;
 
@@ -183,6 +184,14 @@ public static class MetaServiceCollectionExtensions
         services.AddSingleton<InstagramConnector>();
         services.AddSingleton<IPlatformConnector>(sp => sp.GetRequiredService<FacebookConnector>());
         services.AddSingleton<IPlatformConnector>(sp => sp.GetRequiredService<InstagramConnector>());
+
+        // Threads: o token vai como parâmetro do pedido (é o formato documentado), então este cliente
+        // também não registra pedidos, e os erros devolvidos nunca citam o endereço.
+        services.AddHttpClient(ThreadsAuth.HttpClientName, client => client.Timeout = TimeSpan.FromMinutes(2)).RemoveAllLoggers();
+        services.TryAddSingleton(TimeProvider.System);
+        services.AddSingleton<ThreadsAuth>();
+        services.AddSingleton<ThreadsConnector>(); // usa o IPublicFileShare registrado em AddBast
+        services.AddSingleton<IPlatformConnector>(sp => sp.GetRequiredService<ThreadsConnector>());
         return services;
     }
 }

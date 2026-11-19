@@ -262,6 +262,9 @@ namespace Bast.Infrastructure.Persistence.Migrations
                     b.Property<int>("IntervalMinutes")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int>("ManualMaxPerDay")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int>("MaxAttempts")
                         .HasColumnType("INTEGER");
 
@@ -272,6 +275,11 @@ namespace Bast.Infrastructure.Persistence.Migrations
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("MissedPolicy")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Mode")
                         .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("TEXT");

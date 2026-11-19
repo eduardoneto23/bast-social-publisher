@@ -36,6 +36,8 @@ builder.Services.AddHostedService<ImportWorker>();
 builder.Services.AddTelegramNotifications();
 builder.Services.AddHostedService<PublishingWorker>();
 builder.Services.AddHostedService<NotificationWorker>();
+builder.Services.AddHostedService<ThreadsTokenWorker>();
+builder.Services.AddHostedService<TelegramButtonsWorker>();
 
 var app = builder.Build();
 
@@ -194,27 +196,55 @@ app.MapPost("/api/videos/{id:guid}/publish-now", async (Guid id, QueueCommands c
     return moved is null ? Results.NotFound() : Results.Ok(new { publications = moved.Value });
 });
 
+// Horário escolhido pelo usuário, no fuso da agenda ("2026-11-20T14:30"). Vale nos dois modos.
+app.MapPost("/api/videos/{id:guid}/time", async (Guid id, VideoTimeInput input, SchedulingService scheduling, CancellationToken ct) =>
+{
+    if (!DateTime.TryParseExact(input.LocalTime, ["yyyy-MM-dd'T'HH:mm", "yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd HH:mm"],
+            System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var local))
+    {
+        return Results.BadRequest(new { problems = new[] { "Informe data e hora no formato AAAA-MM-DDTHH:mm." } });
+    }
+
+    var result = await scheduling.SetTimeAsync(id, local, ct);
+    if (result.NotFound) return Results.NotFound();
+    return result.Ok
+        ? Results.Ok(new { message = result.Message, result.ScheduledAtUtc })
+        : Results.BadRequest(new { problems = new[] { result.Message } });
+});
+
+// Publicação assistida (TikTok): o usuário avisa pelo painel que publicou, ou que não vai publicar.
+app.MapPost("/api/publications/{id:guid}/manual", async (Guid id, ManualAnswerInput input, ManualPublishing manual, CancellationToken ct) =>
+{
+    var (ok, message) = await manual.AnswerAsync(id, input.Published, ct);
+    return Results.Ok(new { ok, message });
+});
+
 // Contas: situação de cada rede. Tokens e segredos nunca são devolvidos pela API.
-app.MapGet("/api/accounts", async (AccountService accounts, IConnectorRegistry registry, GoogleAuth google, MetaAuth meta, CancellationToken ct) =>
+app.MapGet("/api/accounts", async (AccountService accounts, IConnectorRegistry registry, GoogleAuth google, MetaAuth meta, ThreadsAuth threads,
+    TelegramBot telegram, CancellationToken ct) =>
 {
     var stored = (await accounts.GetAllAsync(ct)).ToDictionary(a => a.Platform);
     return Enum.GetValues<Platform>().Select(platform =>
     {
         stored.TryGetValue(platform, out var account);
+        // TikTok é assistido: não há conta conectada, só o Telegram para entregar o vídeo.
+        var tiktok = platform == Platform.TikTok;
         return new
         {
             platform,
-            status = account?.Status ?? AccountStatus.Disconnected,
-            account?.DisplayName,
+            status = tiktok ? (telegram.IsConfigured ? AccountStatus.Connected : AccountStatus.Disconnected) : account?.Status ?? AccountStatus.Disconnected,
+            DisplayName = tiktok ? (telegram.IsConfigured ? "Modo assistido pelo Telegram" : null) : account?.DisplayName,
             account?.ExternalAccountId,
             account?.ConnectedAtUtc,
             account?.LastError,
             available = registry.Available.Contains(platform),
-            integrationImplemented = platform is Platform.YouTube or Platform.Facebook or Platform.Instagram,
+            integrationImplemented = true,
+            assisted = tiktok,
             hasClientCredentials = platform switch
             {
                 Platform.YouTube => google.HasClientCredentials,
                 Platform.Facebook or Platform.Instagram => meta.HasAppCredentials,
+                Platform.Threads => threads.HasAppCredentials,
                 _ => (bool?)null,
             },
         };
@@ -298,6 +328,58 @@ app.MapDelete("/api/connect/meta", async (MetaAuth meta, CancellationToken ct) =
     return Results.Ok(new { connected = false });
 });
 
+// Threads: login OAuth oficial. O script abre a autorização e devolve o endereço de retorno colado pelo usuário.
+app.MapPut("/api/connect/threads/credentials", (ThreadsAppInput input, ThreadsAuth threads) =>
+{
+    if (string.IsNullOrWhiteSpace(input.AppId) || string.IsNullOrWhiteSpace(input.AppSecret) || string.IsNullOrWhiteSpace(input.RedirectUri))
+    {
+        return Results.BadRequest(new { problems = new[] { "Informe appId, appSecret e redirectUri." } });
+    }
+
+    var problem = threads.SaveAppCredentials(input.AppId, input.AppSecret, input.RedirectUri);
+    return problem is null ? Results.Ok(new { saved = true }) : Results.BadRequest(new { problems = new[] { problem } });
+});
+
+app.MapPost("/api/connect/threads/start", (ThreadsAuth threads) =>
+{
+    var result = threads.Start();
+    return Results.Ok(new { ok = result.Ok, message = result.Message, authorizeUrl = result.AuthorizeUrl });
+});
+
+app.MapPost("/api/connect/threads/code", async (ThreadsCodeInput input, ThreadsAuth threads, CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(input.RedirectedUrl))
+    {
+        return Results.BadRequest(new { problems = new[] { "Informe redirectedUrl." } });
+    }
+
+    try
+    {
+        var result = await threads.ConnectAsync(input.RedirectedUrl, ct);
+        return Results.Ok(new { ok = result.Ok, message = result.Message });
+    }
+    catch (Exception ex) when (ex is HttpRequestException or IOException or TaskCanceledException)
+    {
+        // Sem a mensagem da exceção: os pedidos do Threads levam o token no endereço.
+        return Results.Ok(new { ok = false, message = "Sem conexão com o Threads. Tente de novo." });
+    }
+});
+
+app.MapGet("/api/connect/threads/status", (ThreadsAuth threads) => Results.Ok(new
+{
+    hasAppCredentials = threads.HasAppCredentials,
+    redirectUri = threads.RedirectUri,
+    connected = threads.Connection is not null,
+    username = threads.Connection?.Username,
+    tokenExpiresAtUtc = threads.Connection?.ExpiresAtUtc,
+}));
+
+app.MapDelete("/api/connect/threads", async (ThreadsAuth threads, CancellationToken ct) =>
+{
+    await threads.DisconnectAsync(ct);
+    return Results.Ok(new { connected = false });
+});
+
 // Telegram: avisos por um bot do próprio usuário. O token nunca é devolvido pela API.
 app.MapGet("/api/connect/telegram/status", (TelegramBot telegram) => Results.Ok(telegram.Status));
 
@@ -361,6 +443,8 @@ static object ToResponse(ScheduleSettings s) => new
     s.MissedPolicy,
     s.MissedGraceMinutes,
     s.MaxAttempts,
+    s.Mode,
+    s.ManualMaxPerDay,
     s.Paused,
     s.UpdatedAtUtc,
 };
@@ -368,5 +452,9 @@ static object ToResponse(ScheduleSettings s) => new
 public sealed record GoogleClientInput(string ClientId, string ClientSecret);
 public sealed record MetaAppInput(string AppId, string AppSecret);
 public sealed record MetaTokenInput(string UserToken, string? PageId);
+public sealed record ManualAnswerInput(bool Published);
+public sealed record VideoTimeInput(string LocalTime);
+public sealed record ThreadsAppInput(string AppId, string AppSecret, string RedirectUri);
+public sealed record ThreadsCodeInput(string RedirectedUrl);
 public sealed record TelegramTokenInput(string Token);
 public sealed record TelegramLinkInput(string Code);

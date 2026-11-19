@@ -53,6 +53,14 @@ internal static class Graph
                     Text(error, "error_user_msg") ?? Text(error, "message") ?? "erro sem descrição"));
             }
 
+            // Formato usado pelo login do Threads: {"error_type":"OAuthException","code":400,"error_message":"..."}.
+            if (Text(body, "error_message") is { } flatMessage && !response.IsSuccessStatusCode)
+            {
+                return (body, new Error(
+                    body.TryGetProperty("code", out var flatCode) && flatCode.TryGetInt32(out var fc) ? fc : (int)response.StatusCode,
+                    null, flatMessage));
+            }
+
             if (body.TryGetProperty("debug_info", out var debug) && debug.ValueKind == JsonValueKind.Object)
             {
                 return (body, new Error(0, null, Text(debug, "message") ?? Text(debug, "type") ?? "falha no upload",

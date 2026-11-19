@@ -43,6 +43,7 @@ const CONNECT_HELP = {
   YouTube: 'scripts\\connect-youtube.ps1',
   Instagram: 'scripts\\connect-meta.ps1',
   Facebook: 'scripts\\connect-meta.ps1',
+  Threads: 'scripts\\connect-threads.ps1',
 };
 
 const ISSUE_LABEL = {
@@ -63,6 +64,7 @@ const NOTIFICATION_KIND = {
   PublicationUnknown: 'Sem confirmação',
   AccountNeedsReauth: 'Reconectar conta',
   ImportIssue: 'Pasta com problema',
+  TimeNeeded: 'Aguardando horário',
   Test: 'Teste',
 };
 
@@ -72,6 +74,9 @@ const state = {
   scheduleDirty: false,
   scheduleProblems: [],
   busy: false,
+  // Horário sendo escolhido na Fila: rascunho por vídeo ({ date, time }) e qual vídeo está mudando de horário.
+  timeDrafts: {},
+  changingTime: null,
 };
 
 // ---------- utilidades ----------
@@ -108,6 +113,19 @@ function fmt(iso, options) {
   } catch {
     return new Intl.DateTimeFormat('pt-BR', options).format(new Date(iso));
   }
+}
+
+/** Data e hora de um instante no fuso da agenda, no formato dos campos do navegador. */
+function localParts(iso) {
+  const options = { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' };
+  let parts;
+  try {
+    parts = new Intl.DateTimeFormat('en-CA', { timeZone: timeZone(), ...options }).formatToParts(new Date(iso));
+  } catch {
+    parts = new Intl.DateTimeFormat('en-CA', options).formatToParts(new Date(iso));
+  }
+  const get = type => (parts.find(p => p.type === type) || {}).value;
+  return { date: `${get('year')}-${get('month')}-${get('day')}`, time: `${get('hour')}:${get('minute')}` };
 }
 
 const fmtDateTime = iso => fmt(iso, { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
@@ -189,9 +207,11 @@ function derive(data) {
     }
   }
 
+  const awaitingTime = pending.filter(v => v.state === 'Ready' && !v.scheduledAtUtc
+    && (v.publications.length === 0 || v.publications.some(p => p.state === 'Scheduled')));
   const reauth = (data.accounts || []).filter(a => a.status === 'NeedsReauth');
   const next = pending.filter(v => v.scheduledAtUtc).sort((a, b) => a.scheduledAtUtc.localeCompare(b.scheduledAtUtc))[0] || null;
-  return { pending, done, unknown, failed, reauth, next, lastActivity, issues: data.issues || [] };
+  return { pending, done, unknown, failed, reauth, next, awaitingTime, lastActivity, issues: data.issues || [] };
 }
 
 async function refresh() {
@@ -214,7 +234,9 @@ async function refresh() {
 // ---------- blocos reutilizados ----------
 
 function publicationRow(publication) {
-  const [label, kind] = PUB_STATE[publication.state] || [publication.state, ''];
+  // TikTok assistido: o vídeo foi entregue pelo Telegram e espera o usuário publicar no app.
+  const waitingYou = publication.platform === 'TikTok' && publication.state === 'Processing';
+  const [label, kind] = waitingYou ? ['Aguardando você', 'warn'] : PUB_STATE[publication.state] || [publication.state, ''];
   const detail = [];
   if (publication.simulated) detail.push('simulação');
   if (publication.attemptCount > 1) detail.push(`${publication.attemptCount} tentativas`);
@@ -232,14 +254,36 @@ function publicationRow(publication) {
       detail.join(' · '), detail.length && link ? ' · ' : '', link,
       publication.lastError && publication.state !== 'Published'
         ? h('div', { class: publication.state === 'Failed' ? 'error-text' : '', text: publication.lastError })
+        : null,
+      waitingYou
+        ? h('div', { class: 'top-actions' },
+          h('span', { class: 'small', text: 'Vídeo e legenda enviados ao seu Telegram.' }),
+          h('button', {
+            class: 'button small primary', type: 'button', text: 'Publiquei',
+            onclick: () => act(() => api(`/api/publications/${publication.id}/manual`, 'POST', { published: true }), r => r.message),
+          }),
+          confirmButton('skip:' + publication.id, 'Não vou publicar', 'Não publicar no TikTok?',
+            () => act(() => api(`/api/publications/${publication.id}/manual`, 'POST', { published: false }), r => r.message)))
         : null));
 }
 
 function videoItem(video, options = {}) {
-  const [label, kind] = VIDEO_STATE[video.state] || [video.state, ''];
+  const awaiting = state.view.awaitingTime.includes(video);
+  const [label, kind] = awaiting ? ['Aguardando horário', 'warn'] : VIDEO_STATE[video.state] || [video.state, ''];
+  const manual = state.data.schedule.mode === 'Manual';
   const when = video.scheduledAtUtc
     ? `${fmtDateTime(video.scheduledAtUtc)}${FINAL_VIDEO.has(video.state) ? '' : ' (' + relative(video.scheduledAtUtc) + ')'}`
-    : 'sem horário: nenhuma rede conectada ou habilitada';
+    : awaiting && manual ? 'Escolha quando publicar.'
+      : awaiting ? 'Sem horário. Escolha um horário ou espere a agenda automática.'
+        : 'sem horário: nenhuma rede conectada ou habilitada';
+
+  // O horário só pode mudar enquanto nenhuma rede começou a publicar.
+  const timeEditable = video.state === 'Ready'
+    && (video.publications.length === 0 || video.publications.every(p => ['Scheduled', 'Failed', 'Cancelled'].includes(p.state)))
+    && (video.publications.length === 0 || video.publications.some(p => p.state === 'Scheduled'));
+  const showPicker = options.cancel && timeEditable && (awaiting || state.changingTime === video.id);
+  const canPublishNow = options.cancel && video.state === 'Ready'
+    && (video.publications.some(p => p.state === 'Scheduled') || (awaiting && video.publications.length === 0));
 
   const cancellable = options.cancel && video.publications.some(p => ['Pending', 'Scheduled', 'RetryWait', 'Validating'].includes(p.state));
   return h('div', { class: 'item' },
@@ -249,7 +293,12 @@ function videoItem(video, options = {}) {
         h('div', { class: 'muted small', text: when })),
       h('div', { class: 'top-actions' },
         pill(label, kind),
-        options.cancel && video.state === 'Ready' && video.publications.some(p => p.state === 'Scheduled')
+        options.cancel && timeEditable && !showPicker && video.scheduledAtUtc
+          ? h('button', {
+            class: 'button small', type: 'button', text: 'Mudar horário',
+            onclick: () => { state.changingTime = video.id; render(true); },
+          }) : null,
+        canPublishNow
           ? confirmButton('now:' + video.id, 'Publicar agora', 'Publicar agora em todas as redes?',
             () => act(() => api(`/api/videos/${video.id}/publish-now`, 'POST'),
               r => r.publications > 0
@@ -260,9 +309,63 @@ function videoItem(video, options = {}) {
             r => r.notCancellable > 0
               ? `${r.cancelled} cancelada(s). ${r.notCancellable} não puderam ser canceladas porque já estavam em envio.`
               : 'Publicação cancelada. A pasta vai para ARQUIVADOS.')) : null)),
+    showPicker ? timePicker(video) : null,
     video.publications.length
       ? h('div', { class: 'pubs' }, video.publications.map(publicationRow))
       : null);
+}
+
+/** Quantos vídeos já estão marcados no dia (fuso da agenda), sem contar o próprio vídeo. */
+function videosOnDay(date, exceptId) {
+  return (state.data.queue || []).filter(v => v.id !== exceptId && v.scheduledAtUtc
+    && ['Ready', 'Publishing', 'Published'].includes(v.state)
+    && localParts(v.scheduledAtUtc).date === date).length;
+}
+
+/** Escolha de data e hora de publicação, no fuso da agenda. */
+function timePicker(video) {
+  const schedule = state.data.schedule;
+  const limit = schedule.mode === 'Manual' ? schedule.manualMaxPerDay : schedule.maxPerDay;
+  const now = localParts(new Date().toISOString());
+  const draft = state.timeDrafts[video.id]
+    || (video.scheduledAtUtc ? localParts(video.scheduledAtUtc) : { date: now.date, time: '' });
+
+  const dateInput = h('input', { type: 'date', value: draft.date, min: now.date, required: true, 'aria-label': 'Data da publicação' });
+  const timeInput = h('input', { type: 'time', value: draft.time, required: true, 'aria-label': 'Hora da publicação' });
+  const hint = h('span', { class: 'small muted' });
+  const update = () => {
+    state.timeDrafts[video.id] = { date: dateInput.value, time: timeInput.value };
+    const count = dateInput.value ? videosOnDay(dateInput.value, video.id) : 0;
+    hint.textContent = dateInput.value ? `Nesse dia: ${count} de ${limit} vídeo(s).` : '';
+    hint.className = 'small ' + (count >= limit ? 'error-text' : 'muted');
+  };
+  dateInput.addEventListener('input', update);
+  timeInput.addEventListener('input', update);
+  update();
+
+  const save = () => {
+    if (!dateInput.value || !timeInput.value) { notice('Escolha a data e a hora.', true); return; }
+    // Sai do campo para o painel voltar a se atualizar depois de salvar.
+    if (document.activeElement) document.activeElement.blur();
+    act(async () => {
+      const result = await api(`/api/videos/${video.id}/time`, 'POST', { localTime: `${dateInput.value}T${timeInput.value}` });
+      delete state.timeDrafts[video.id];
+      state.changingTime = null;
+      return result;
+    }, r => r.message);
+  };
+
+  return h('div', { class: 'time-picker top-actions' },
+    h('span', { class: 'small', text: 'Publicar em' }),
+    dateInput, timeInput,
+    h('button', { class: 'button small primary', type: 'button', text: 'Agendar', onclick: save }),
+    state.changingTime === video.id
+      ? h('button', {
+        class: 'button small', type: 'button', text: 'Desistir',
+        onclick: () => { state.changingTime = null; delete state.timeDrafts[video.id]; render(true); },
+      }) : null,
+    hint,
+    h('span', { class: 'small muted', text: `Fuso: ${schedule.timeZoneId}` }));
 }
 
 /** Botão de ação que pede confirmação na própria página, em dois passos. */
@@ -320,6 +423,7 @@ function renderOverview() {
   if (data.schedule.paused) alerts.push('A fila está pausada: nenhuma publicação nova começa até você retomar.');
   if (!data.health.ffmpeg || !data.health.ffprobe) alerts.push('ffmpeg ou ffprobe não encontrado: os vídeos não podem ser validados.');
   for (const account of view.reauth) alerts.push(`${account.platform}: é preciso conectar a conta de novo.`);
+  if (view.awaitingTime.length) alerts.push(`${view.awaitingTime.length} vídeo(s) aguardando você escolher o horário na aba Fila.`);
   if (view.unknown.length) alerts.push(`${view.unknown.length} envio(s) sem confirmação da plataforma. Veja em Problemas.`);
 
   return [
@@ -399,6 +503,12 @@ function renderAccounts() {
     let help = null;
     if (!account.integrationImplemented) {
       help = h('div', { class: 'small muted', text: 'Integração ainda não disponível.' });
+    } else if (account.assisted && account.status !== 'Connected') {
+      help = h('div', { class: 'small muted', text: 'Modo assistido: conecte o Telegram (abaixo) para receber o vídeo e a legenda na hora de publicar.' });
+    } else if (account.assisted && !enabled) {
+      help = h('div', { class: 'small muted', text: 'A API do TikTok não permite publicação automática pública. Marque o TikTok na Agenda para receber o vídeo e a legenda pelo Telegram e publicar no app.' });
+    } else if (account.assisted) {
+      help = h('div', { class: 'small muted', text: 'No horário, o vídeo e a legenda chegam pelo Telegram; você publica no app e toca em Publiquei.' });
     } else if (account.status !== 'Connected') {
       help = h('div', { class: 'small muted' }, 'Para conectar, rode no PowerShell: ', h('code', { text: CONNECT_HELP[account.platform] }));
     } else if (!enabled) {
@@ -446,6 +556,10 @@ function renderSchedule() {
 
   const form = h('form', { id: 'schedule-form', novalidate: true },
     h('div', { class: 'fields' },
+      field('Como os vídeos recebem horário', h('select', { name: 'mode' },
+        h('option', { value: 'Manual', selected: s.mode === 'Manual', text: 'Manual: eu escolho o horário na Fila' }),
+        h('option', { value: 'Automatic', selected: s.mode === 'Automatic', text: 'Automático: próximo horário livre da agenda' }))),
+      field('Máximo por dia no modo manual', number('manualMaxPerDay', s.manualMaxPerDay, 1, 100)),
       field('Primeira publicação do dia', h('input', { type: 'time', name: 'startTime', value: s.startTime, required: true })),
       field('Última publicação até', h('input', { type: 'time', name: 'endTime', value: s.endTime, required: true })),
       field('Intervalo entre vídeos (minutos)', number('intervalMinutes', s.intervalMinutes, 1, 1440)),
@@ -489,6 +603,8 @@ function renderSchedule() {
       missedPolicy: values.get('missedPolicy'),
       missedGraceMinutes: Number(values.get('missedGraceMinutes')),
       maxAttempts: Number(values.get('maxAttempts')),
+      mode: values.get('mode'),
+      manualMaxPerDay: Number(values.get('manualMaxPerDay')),
     };
     if (state.busy) return;
     state.busy = true;
@@ -501,6 +617,7 @@ function renderSchedule() {
 
   return [card('Agenda de publicação',
     h('p', { class: 'muted small', text: 'Cada vídeo ocupa um horário, e todas as redes marcadas recebem o vídeo nesse horário. Dois vídeos nunca saem juntos.' }),
+    h('p', { class: 'muted small', text: 'No modo manual, o vídeo importado fica aguardando até você escolher a data e a hora na aba Fila, com o máximo de vídeos por dia acima. Primeira publicação, intervalo e máximo por dia valem para o modo automático. Em qualquer modo dá para mudar o horário de um vídeo que ainda não começou.' }),
     form)];
 }
 
@@ -550,7 +667,9 @@ function render(force) {
   pauseButton.textContent = data.schedule.paused ? 'Retomar fila' : 'Pausar fila';
   pauseButton.className = 'button' + (data.schedule.paused ? ' primary' : '');
 
-  document.getElementById('count-queue').textContent = view.pending.length ? String(view.pending.length) : '';
+  const queueCount = document.getElementById('count-queue');
+  queueCount.textContent = view.pending.length ? String(view.pending.length) : '';
+  queueCount.className = 'count' + (view.awaitingTime.length ? ' alert' : '');
   const problems = view.issues.length + view.failed.length + view.unknown.length + view.reauth.length;
   const problemCount = document.getElementById('count-problems');
   problemCount.textContent = problems ? String(problems) : '';
@@ -560,7 +679,8 @@ function render(force) {
   for (const panel of document.querySelectorAll('.panel')) panel.hidden = panel.id !== 'tab-' + state.tab;
 
   // Não redesenha o formulário da agenda enquanto o usuário está editando.
-  if (state.tab !== 'schedule' || !state.scheduleDirty || force) {
+  const pickingTime = document.activeElement && document.activeElement.closest && document.activeElement.closest('.time-picker');
+  if ((state.tab !== 'schedule' || !state.scheduleDirty || force) && (!pickingTime || force)) {
     const panel = document.getElementById('tab-' + state.tab);
     const scroll = window.scrollY;
     panel.replaceChildren(...RENDERERS[state.tab]().filter(Boolean));

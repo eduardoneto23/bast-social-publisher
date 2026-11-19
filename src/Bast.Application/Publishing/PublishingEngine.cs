@@ -159,7 +159,7 @@ public sealed class PublishingEngine(
         PublishOutcome outcome;
         try
         {
-            outcome = await connector.PublishAsync(BuildRequest(db, publication, video, videoPath), ct);
+            outcome = await connector.PublishAsync(await BuildRequestAsync(db, publication, video, videoPath, ct), ct);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -209,7 +209,7 @@ public sealed class PublishingEngine(
             PublishOutcome outcome;
             try
             {
-                outcome = await connector.CheckAsync(BuildRequest(db, publication, video, videoPath), ct);
+                outcome = await connector.CheckAsync(await BuildRequestAsync(db, publication, video, videoPath, ct), ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -236,7 +236,7 @@ public sealed class PublishingEngine(
         // Só uma consulta pode afirmar que a plataforma não tem a publicação.
         if (kind == PublishOutcomeKind.NotFound && !fromCheck) kind = PublishOutcomeKind.Transient;
         // Falha temporária ao consultar não diz nada sobre a publicação: continua aguardando confirmação.
-        if (kind is PublishOutcomeKind.Transient or PublishOutcomeKind.AuthRequired or PublishOutcomeKind.Offline && fromCheck) kind = PublishOutcomeKind.Unknown;
+        if (kind is PublishOutcomeKind.Transient or PublishOutcomeKind.AuthRequired or PublishOutcomeKind.Offline or PublishOutcomeKind.Waiting && fromCheck) kind = PublishOutcomeKind.Unknown;
 
         switch (kind)
         {
@@ -273,12 +273,19 @@ public sealed class PublishingEngine(
 
                 break;
 
-            case PublishOutcomeKind.AuthRequired or PublishOutcomeKind.Offline:
-                // Condição externa (conta desconectada, internet fora): espera sem gastar tentativa.
+            case PublishOutcomeKind.AuthRequired or PublishOutcomeKind.Offline or PublishOutcomeKind.Waiting:
+                // Condição externa (conta desconectada, internet fora, outra rede ainda publicando): espera sem gastar tentativa.
                 publication.LastError = outcome.Error ?? "Aguardando conexão.";
                 publication.AttemptCount = Math.Max(0, publication.AttemptCount - 1);
                 publication.NextRetryAtUtc = now + (outcome.RetryAfter ?? (kind == PublishOutcomeKind.Offline ? OfflineInterval : NotConnectedInterval));
                 publication.TransitionTo(PublicationState.RetryWait, now);
+                break;
+
+            case PublishOutcomeKind.Skipped:
+                publication.LastError = outcome.Error ?? "Publicação dispensada.";
+                publication.NextRetryAtUtc = null;
+                if (publication.State == PublicationState.Uploading) publication.TransitionTo(PublicationState.Processing, now);
+                publication.TransitionTo(PublicationState.Cancelled, now);
                 break;
 
             case PublishOutcomeKind.Unknown:
@@ -323,8 +330,12 @@ public sealed class PublishingEngine(
         await db.SaveChangesAsync(ct);
     }
 
-    private static PublishRequest BuildRequest(BastDbContext db, Publication publication, Video video, string videoPath)
+    private static async Task<PublishRequest> BuildRequestAsync(BastDbContext db, Publication publication, Video video, string videoPath, CancellationToken ct)
     {
+        var siblings = await db.Publications.AsNoTracking()
+            .Where(p => p.VideoId == publication.VideoId && p.Id != publication.Id)
+            .Select(p => new SiblingPublication(p.Platform, p.State, p.ExternalId))
+            .ToListAsync(ct);
         var folder = Path.GetDirectoryName(videoPath)!;
         return new PublishRequest(
             publication.Id,
@@ -338,7 +349,8 @@ public sealed class PublishingEngine(
             {
                 publication.ExternalId = externalId;
                 await db.SaveChangesAsync();
-            });
+            },
+            siblings);
     }
 
     private void Log(Video video, Publication publication)

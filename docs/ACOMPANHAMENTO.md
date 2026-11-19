@@ -143,5 +143,42 @@ Cenários da seção 12 cobertos por teste automatizado: 1, 2, 3, 4, 8 (falha pa
 - LocalRequestGuard: a API recusa pedidos de outras origens (pagina de terceiros no navegador) e de nomes de host que nao sejam 127.0.0.1/localhost. Cabecalhos CSP default-src 'self', sem iframe.
 - Testado no navegador contra instancia isolada em simulacao: abas, cancelar, pausar, agenda com erro de validacao e com sucesso. 157 testes automaticos.
 - Publicar agora: POST /api/videos/{id}/publish-now e botao na Fila. So adianta o horario do video; o envio continua sendo do motor (respeita pausa, nao duplica). Os demais videos mantem o horario. Usado em um envio real nas tres redes (uma tentativa em cada); o botao do painel em si nao foi clicado. 158 testes automaticos.
+- Espera de 5 min apos reconectar uma rede: e o intervalo de verificacao de rede desconectada (NotConnectedInterval). Comportamento esperado.
 - Nao feito no painel: repetir manualmente uma publicacao que falhou, conectar contas, ver legenda/miniatura do video, paginacao do historico (mostra os 100 mais recentes).
 
+
+## 2026-11-17 - Threads (Etapa 5)
+
+- Documentacao oficial conferida: a API do Threads so aceita video por URL publica (`video_url`); nao ha envio do arquivo. Fluxo: POST /{user}/threads (media_type=VIDEO) -> status do conteiner (IN_PROGRESS, FINISHED, ERROR, EXPIRED, PUBLISHED) -> POST /{user}/threads_publish -> permalink. Login OAuth com ID e chave proprios do Threads; token de 60 dias com renovacao (th_refresh_token).
+- Decisao do usuario: em vez de armazenamento na nuvem, reusar o arquivo do Reel do Instagram (campo `media_url` do IG Media). Testado com os dois Reels reais publicados: o endereco responde video/mp4 e vale ~1,5 dia.
+- Limitacoes aceitas: so vai para o Threads o que vai para o Instagram; Reel com musica protegida nao entrega `media_url` (documentado pela Meta), entao nao vai para o Threads; arquivo ja recomprimido pelo Instagram.
+- Motor: novo resultado `Waiting` (espera sem gastar tentativa) e `Siblings` no pedido (situacao das outras redes do mesmo video). O Threads espera o Instagram publicar.
+- `ThreadsAuth`: login com endereco de retorno https do usuario e conferencia do `state`; renovacao do token quando faltam menos de 50 dias, antes de publicar e a cada 6 h (`ThreadsTokenWorker`). Script `scripts/connect-threads.ps1`; guia `docs/CONECTAR-THREADS.md`.
+- 18 testes novos (176 no total) com servidor falso do Threads. **Sem teste contra a API real ainda.**
+- Incidente: o app da Meta respondeu "API access blocked" (codigo 200, subcodigo 5258005) por volta de 11:20-12:45 e voltou sozinho. Foi a causa da queda do Facebook/Instagram de manha. Motivo nao informado pela Meta.
+
+## 2026-11-17 - TikTok assistido (Etapa 5)
+
+- Documentacao oficial do TikTok reconferida (paginas atualizadas em ago-nov/2026): sem analise, so posts privados em conta privada; a analise lista como nao aceitavel "ferramenta para enviar conteudo as contas que voce administra" e exige app nao pessoal. Decisao do usuario: modo assistido pelo Telegram.
+- `TikTokAssistedConnector` (projeto do Telegram): no horario, envia o arquivo original por sendDocument (limite de 50 MB para bots) e a legenda com botoes Publiquei / Nao vou publicar (callback_data <= 64 bytes). A publicacao fica em Processing ("Aguardando voce") ate a resposta.
+- `ManualPublishing` grava a resposta no identificador da publicacao; o motor conclui na consulta seguinte (Published, ou novo resultado `Skipped` -> Cancelled). Transicao Processing -> Cancelled liberada so para esse caso; o cancelamento da fila continua sem tocar em Processing.
+- `TelegramButtonsWorker` le os botoes por getUpdates com espera longa; toques de outras conversas sao recusados. Painel: botoes Publiquei / Nao vou publicar na Fila; conta TikTok aparece como "Modo assistido pelo Telegram".
+- 9 testes novos (185 no total). Nao testado com o Telegram real ainda.
+
+## 2026-11-17 - Primeiro teste real do Threads e do TikTok
+
+- TikTok assistido: funcionou no video "03 NOVO MEDO" (arquivo e legenda chegaram no Telegram, resposta Publiquei concluiu a publicacao).
+- Threads: falhou. O conteiner foi criado, mas terminou em `ERROR` com `error_message=UNKNOWN`. Diagnostico: o video original esta dentro das regras do Threads (H.264, 1080x1920, 30 fps, 25 s, 33 MB); o arquivo que o Instagram entrega e uma copia 720p de 2,8 MB com audio HE-AAC. Testes so de conteiner, sem publicar: arquivo do Reel do Instagram e do Facebook (o mesmo arquivo) recusados; video publico de exemplo aceito; arquivo original por tunel do Cloudflare aceito. Causa exata (audio ou origem no CDN da Meta) nao confirmada.
+- Decisao do usuario: tirar o Threads da agenda enquanto isso e trocar a origem do video para um link temporario pelo `cloudflared` (tunel rapido, sem conta).
+- `IPublicFileShare` / `CloudflaredFileShare`: servidor local de um arquivo so, em caminho aleatorio, so em 127.0.0.1; um tunel por publicacao, fechado quando o conteiner sai de IN_PROGRESS ou em 30 min; endereco fora dos logs. O Threads nao depende mais do Instagram. Executavel oficial (assinado por Cloudflare, Inc.) em `SYSTEM\tools\cloudflared.exe` ou `Bast:CloudflaredPath`.
+- Verificado com o cloudflared real pela classe nova: tunel em 6 s, conteiner FINISHED em 30 s, processo encerrado no fim. 185 testes (6 rodadas seguidas).
+- Pendente: primeira publicacao real no Threads pelo servico; o tunel rapido do Cloudflare nao tem garantia de disponibilidade.
+## 2026-11-19 - Horário escolhido pelo usuário (modo manual)
+
+- Pedido: manter a agenda de 4 em 4 horas como opção e poder escolher no painel o horário de cada vídeo; o vídeo só sai quando o horário for informado; 3 vídeos por dia.
+- `ScheduleSettings.Mode` (Automatic/Manual) e `ManualMaxPerDay` (padrão 3). Migracao `ManualSchedule` (colunas com padrao Automatic e 3; instalacoes existentes continuam no automatico ate trocar no painel).
+- `SchedulingService.SetTimeAsync`: horario no fuso da agenda, recusa passado, dia cheio (conta Ready/Publishing/Published do dia local), mesmo minuto de outro video e video que ja comecou. Vale tambem no automatico (botao Mudar horario).
+- Modo manual: video importado fica Ready sem horario e sem publicacoes; aviso `TimeNeeded` no Telegram uma vez por video. Horario perdido alem da tolerancia: o video volta a aguardar horario (publicacoes ficam Scheduled sem horario) e chega aviso; nunca publica atrasado. Voltar para o automatico agenda os que aguardam.
+- Publicar agora funciona para video aguardando horario (cria as publicacoes para ja).
+- Painel: aba Agenda com o modo e o maximo por dia do manual; aba Fila com data e hora por video, contagem do dia e Mudar horario; o painel nao redesenha enquanto o campo de horario esta em uso.
+- 13 testes novos (198 no total, 6 rodadas seguidas). Teste antigo do Telegram ficou tolerante ao arquivo -wal do SQLite que some durante a leitura.
