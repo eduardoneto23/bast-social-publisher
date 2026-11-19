@@ -19,6 +19,16 @@ Automação **fora do serviço BAST**: uma tarefa agendada do Claude (app Claude
 
 O modelo original nunca é alterado: cada vídeo ganha uma cópia chamada "BAST thumb - <nome da pasta>" no Canva, que dá para ajustar à mão depois.
 
+## Legenda automática
+
+Se a pasta tiver só o vídeo, o nome do arquivo vira o título de trabalho (ex.: `gta vi o inicio.mp4`; se o nome for genérico, como `video.mp4`, vale o nome da pasta) e a tarefa cria o `legenda.txt`:
+
+- **Título:** começa pelo nome do jogo como as pessoas buscam, tem de 40 a 65 caracteres e diz o que o vídeo mostra de fato. Frases vazias de impacto ("que ninguém esperava", "CHOCANTE"), título todo em maiúsculas e promessas que o vídeo não cumpre são proibidos.
+- **Descrição:** 1 ou 2 frases objetivas.
+- **Hashtags:** exatamente 5, todas do jogo e do vídeo. As 3 primeiras (mostradas pelo YouTube acima do título) são os termos mais fortes do jogo e as 2 últimas as mais específicas do vídeo, com uma pesquisa rápida do que está em alta.
+- **Validação:** `salvar-legenda.ps1` confere tudo isso antes de gravar e nunca sobrescreve um `.txt` que você colocou.
+- **Sem revisão:** a legenda vai para o ar sem revisão. Se quiser controlar o texto, coloque o seu `legenda.txt` na pasta.
+
 ## Se der errado
 
 - Quando uma pasta não dá certo, ela fica em `00 - THUMB` com um `THUMB-ERRO.txt` explicando o motivo e não é tentada de novo. Corrija e apague esse arquivo para tentar outra vez.
