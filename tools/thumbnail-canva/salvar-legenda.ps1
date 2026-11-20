@@ -1,7 +1,7 @@
 ﻿<#
   Confere e grava a legenda criada para o vídeo como legenda.txt (UTF-8) na pasta.
   O rascunho vem de um arquivo (-Draft), para não perder acentos, emojis e quebras de linha.
-  Regras: 1ª linha = título (até 100 caracteres, sem #); a última linha não vazia tem exatamente
+  Regras: 1ª linha = título (até 55 caracteres, sem #, sem lista de assuntos); a última linha não vazia tem exatamente
   5 hashtags (#palavra, sem espaços, sem repetir); total até 5000 bytes (limite da descrição do YouTube).
   Nunca sobrescreve uma legenda que já existe na pasta.
 #>
@@ -25,7 +25,9 @@ $lines = $text -split "`n"
 $title = $lines[0].Trim()
 $problems = @()
 if ($title.Length -eq 0) { $problems += 'A 1ª linha (título) está vazia.' }
-if ($title.Length -gt 100) { $problems += "O título tem $($title.Length) caracteres; o máximo do YouTube é 100." }
+if ($title.Length -gt 55) { $problems += "O título tem $($title.Length) caracteres; o máximo é 55 (título curto, gancho e não resumo)." }
+if (($title.Split(',').Count - 1) -ge 1 -and $title -match '\se\s') { $problems += 'O título lista vários assuntos; fale de UMA coisa só.' }
+if (($title.Split(':').Count - 1) -gt 1) { $problems += 'O título tem mais de um dois-pontos.' }
 if ($title.Contains('#')) { $problems += 'O título não deve ter hashtags.' }
 if ($title -cmatch '^[^a-záéíóúâêôãõç]*$' -and $title.Length -gt 12) { $problems += 'O título está todo em MAIÚSCULAS.' }
 

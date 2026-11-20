@@ -23,7 +23,7 @@ O modelo original nunca é alterado: cada vídeo ganha uma cópia chamada "BAST 
 
 Se a pasta tiver só o vídeo, o nome do arquivo vira o título de trabalho (ex.: `gta vi o inicio.mp4`; se o nome for genérico, como `video.mp4`, vale o nome da pasta) e a tarefa cria o `legenda.txt`:
 
-- **Título:** começa pelo nome do jogo como as pessoas buscam, tem de 40 a 65 caracteres e diz o que o vídeo mostra de fato. Frases vazias de impacto ("que ninguém esperava", "CHOCANTE"), título todo em maiúsculas e promessas que o vídeo não cumpre são proibidos.
+- **Título:** não é resumo, é o motivo para clicar. A tarefa pesquisa títulos reais do YouTube sobre o jogo e o momento, cria 5 opções nesse estilo e escolhe pelo teste do fã ("um fã de GTA clicaria nisso?"). Formato curto: jogo + gancho de uma coisa só (ex.: "GTA 6 – Invadi o PÁTIO DA POLÍCIA"), 25 a 55 caracteres. Listas de assuntos, frases vazias de impacto ("que ninguém esperava", "CHOCANTE"), título todo em maiúsculas e promessas que o vídeo não cumpre são proibidos.
 - **Descrição:** 1 ou 2 frases objetivas.
 - **Hashtags:** exatamente 5, todas do jogo e do vídeo. As 3 primeiras (mostradas pelo YouTube acima do título) são os termos mais fortes do jogo e as 2 últimas as mais específicas do vídeo, com uma pesquisa rápida do que está em alta.
 - **Validação:** `salvar-legenda.ps1` confere tudo isso antes de gravar e nunca sobrescreve um `.txt` que você colocou.
