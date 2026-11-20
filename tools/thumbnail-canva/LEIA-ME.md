@@ -12,8 +12,8 @@ Automação **fora do serviço BAST**: uma tarefa agendada do Claude (app Claude
 
 1. `pendentes.ps1` acha as pastas com um vídeo e um .txt, sem imagem, paradas há pelo menos 60 s (cópia terminada).
 2. `quadros.ps1` tira 12 quadros do vídeo e monta uma folha de contato; o Claude escolhe o melhor.
-3. `fundo.ps1` prepara o quadro em 1280x720 com a faixa escura embaixo, igual ao modelo.
-4. O Claude envia o fundo ao Canva (`enviar-canva.ps1`), copia o design "BAST - Modelo Thumbnail", troca a imagem e a frase (parte branca + palavra amarela), confere a prévia e exporta em PNG.
+3. Com `trecho.ps1` (folha segundo a segundo) o Claude acha duas cenas: a ação mais forte para o fundo (perseguição, polícia, batida...) e um close do personagem. `recorte.ps1` tira cada uma em resolução cheia, recortando só a área útil (sem a sua webcam e sem o HUD do jogo, nada de caixa preta) e melhorando cor e nitidez.
+4. O Claude envia as duas ao Canva (`enviar-canva.ps1`), remove o fundo do personagem e monta uma colagem numa cópia do "BAST - Modelo Thumbnail", no estilo dos canais grandes: cena de ação no fundo, personagem recortado grande num lado e a frase em 2 linhas (parte branca + palavra amarela) no outro. Confere a prévia e exporta em PNG.
 5. `salvar-thumb.ps1` confere o PNG (1280x720, até 2 MB, o limite do YouTube) e grava `thumbnail.png` na pasta.
 6. `mover-para-youtube.ps1` move a pasta completa para `01 - ENVIAR YOUTUBE` de uma vez (nome repetido ganha " (2)").
 
@@ -36,7 +36,7 @@ Para escolher você mesmo o momento da thumbnail, coloque na pasta uma imagem ch
 - **Como funciona:** `achar-referencia.ps1` procura esse momento no vídeo e tira o quadro em qualidade cheia.
 - **Precisão:** no teste, um print de 640x360 em baixa qualidade foi achado no segundo exato de um vídeo de 6 minutos, em cerca de 20 s.
 - **Se não achar:** quando a imagem não é do vídeo, ou foi recortada ou editada, a tarefa usa a própria imagem.
-- **Webcam:** é coberta do mesmo jeito.
+- **Webcam:** fica de fora do recorte, do mesmo jeito.
 - **A referência continua na pasta:** ela vai junto para `01 - ENVIAR YOUTUBE`, e o BAST usa a `thumbnail.png`. Se a pasta tiver a referência e uma thumbnail sua, a sua precisa se chamar `thumbnail.png` ou `thumbnail.jpg`.
 
 ## Se der errado
