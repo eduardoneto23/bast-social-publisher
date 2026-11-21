@@ -436,12 +436,178 @@ function renderOverview() {
   return [
     stats,
     alerts.length ? card('Atenção', h('div', { class: 'stack' }, alerts.map(text => h('div', { class: 'error-text', text })))) : null,
+    agendaCard(),
     card('Contas', accounts),
     card('Próximos na fila', view.pending.length
       ? view.pending.slice(0, 3).map(v => videoItem(v))
       : emptyText('Nada na fila. Coloque uma pasta com video.mp4 e legenda.txt em "01 - ENVIAR VERTICAL", ou um vídeo horizontal com legenda.txt e thumbnail em "01 - ENVIAR YOUTUBE".')),
     card('Últimos finalizados', view.done.length ? view.done.slice(0, 3).map(v => videoItem(v)) : emptyText('Nenhum vídeo finalizado ainda.')),
   ];
+}
+
+// ---------- agenda dos próximos dias (gráfico) ----------
+
+const AGENDA_DAYS = 8;
+const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const WEEKDAY_SHORT = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+
+// Quão cheio está o dia: a cor nunca aparece sozinha (há o número "4/5" e o nome na legenda e no detalhe).
+const FILL = {
+  full: { label: 'Completo', hint: 'todos os horários do dia têm vídeo' },
+  most: { label: 'Faltam poucos', hint: 'metade ou mais dos horários têm vídeo' },
+  few: { label: 'Faltam muitos', hint: 'menos da metade dos horários têm vídeo' },
+  empty: { label: 'Vazio', hint: 'nenhum vídeo marcado' },
+  off: { label: 'Sem publicação', hint: 'dia desmarcado na Agenda' },
+};
+
+function fillLevel(count, capacity) {
+  if (capacity === 0) return 'off';
+  if (count >= capacity) return 'full';
+  if (count === 0) return 'empty';
+  return count / capacity >= 0.5 ? 'most' : 'few';
+}
+
+/** Os próximos dias no fuso da agenda: { date: 'AAAA-MM-DD', weekday, label: 'sáb 21/11' }. */
+function nextDays(count) {
+  const today = localParts(new Date().toISOString()).date;
+  const [y, m, d] = today.split('-').map(Number);
+  return Array.from({ length: count }, (_, i) => {
+    const day = new Date(Date.UTC(y, m - 1, d + i, 12));
+    const date = day.toISOString().slice(0, 10);
+    const dd = date.slice(8, 10), mm = date.slice(5, 7);
+    return { date, weekday: day.getUTCDay(), label: i === 0 ? 'hoje' : i === 1 ? 'amanhã' : WEEKDAY_SHORT[day.getUTCDay()], short: `${dd}/${mm}` };
+  });
+}
+
+/** Vídeos de uma fila por dia e os horários de cada dia (marcados e livres). */
+function laneAgenda(lane, days) {
+  const schedule = state.data.schedule;
+  const horizontal = lane === 'YouTubeHorizontal';
+  const slots = horizontal ? schedule.horizontalSlots || [] : schedule.mode === 'FixedTimes' ? schedule.verticalSlots || [] : [];
+  const perDay = horizontal ? schedule.horizontalPerDay : schedule.chosenTimeMaxPerDay;
+  const nowParts = localParts(new Date().toISOString());
+
+  const videos = (state.data.queue || [])
+    .filter(v => (v.lane || 'Standard') === lane && v.scheduledAtUtc && ['Ready', 'Publishing', 'Published'].includes(v.state))
+    .map(v => ({ video: v, ...localParts(v.scheduledAtUtc) }));
+
+  return days.map(day => {
+    const enabled = horizontal || (schedule.days || []).includes(WEEKDAY_NAMES[day.weekday]);
+    const onDay = videos.filter(v => v.date === day.date).sort((a, b) => a.time.localeCompare(b.time));
+    const capacity = enabled ? perDay : 0;
+    // Linhas do detalhe: cada horário da lista (com o vídeo dele ou livre) e os vídeos marcados fora da lista.
+    const rows = onDay.map(v => ({ time: v.time, video: v.video }));
+    if (enabled) {
+      for (const slot of slots) {
+        if (onDay.some(v => v.time === slot)) continue;
+        const past = day.date === nowParts.date && slot <= nowParts.time;
+        rows.push({ time: slot, free: true, past });
+      }
+    }
+    rows.sort((a, b) => a.time.localeCompare(b.time));
+    const count = onDay.length;
+    return { day, count, capacity, level: fillLevel(count, capacity), rows };
+  });
+}
+
+/** Primeiro horário livre (a partir de agora) da fila, para o resumo. */
+function nextFreeSlot(agenda) {
+  for (const entry of agenda) {
+    if (entry.capacity === 0 || entry.count >= entry.capacity) continue;
+    const free = entry.rows.find(r => r.free && !r.past);
+    if (free) return `${entry.day.label === 'hoje' || entry.day.label === 'amanhã' ? entry.day.label : entry.day.label + ' ' + entry.day.short} às ${free.time}`;
+  }
+  return null;
+}
+
+const VIDEO_MARK = {
+  Published: ['✓', 'publicado'],
+  Publishing: ['↑', 'publicando agora'],
+  Ready: ['•', 'agendado'],
+};
+
+function agendaChart(lane, title, subtitle) {
+  const days = nextDays(AGENDA_DAYS);
+  const agenda = laneAgenda(lane, days);
+  const used = agenda.reduce((sum, e) => sum + Math.min(e.count, e.capacity), 0);
+  const total = agenda.reduce((sum, e) => sum + e.capacity, 0);
+  const free = nextFreeSlot(agenda);
+
+  const tooltip = h('div', { class: 'agenda-tip', role: 'tooltip', hidden: true });
+  const plot = h('div', { class: 'agenda-plot' });
+  const chart = h('div', { class: 'agenda-chart' }, plot, tooltip);
+
+  const show = (column, entry) => {
+    const name = entry.day.label === 'hoje' || entry.day.label === 'amanhã'
+      ? `${entry.day.label[0].toUpperCase()}${entry.day.label.slice(1)}, ${entry.day.short}` : `${entry.day.label} ${entry.day.short}`;
+    const head = entry.capacity === 0
+      ? h('div', { class: 'tip-head' }, h('strong', { text: name }), h('span', { class: 'muted', text: ' · dia desmarcado na Agenda' }))
+      : h('div', { class: 'tip-head' }, h('strong', { text: `${entry.count} de ${entry.capacity}` }), h('span', { text: ` horários · ${name}` }),
+        h('div', { class: 'tip-level' }, h('span', { class: 'swatch ' + entry.level }), FILL[entry.level].label));
+    const rows = entry.rows.length
+      ? entry.rows.map(row => row.free
+        ? h('div', { class: 'tip-row free' }, h('span', { class: 'tip-time', text: row.time }), h('span', { text: row.past ? 'passou sem vídeo' : 'livre' }))
+        : h('div', { class: 'tip-row' },
+          h('span', { class: 'tip-time', text: row.time }),
+          h('span', { class: 'tip-mark', title: (VIDEO_MARK[row.video.state] || ['', ''])[1], text: (VIDEO_MARK[row.video.state] || ['•'])[0] }),
+          h('span', { class: 'tip-name', text: row.video.folderName })))
+      : [h('div', { class: 'tip-row free', text: 'Nenhum vídeo neste dia.' })];
+    tooltip.replaceChildren(head, ...rows);
+    tooltip.hidden = false;
+    // Centraliza o detalhe sobre a coluna, sem sair do gráfico.
+    const box = chart.getBoundingClientRect();
+    const col = column.getBoundingClientRect();
+    const width = tooltip.offsetWidth;
+    const left = Math.max(0, Math.min(box.width - width, col.left - box.left + col.width / 2 - width / 2));
+    tooltip.style.left = `${left}px`;
+  };
+  const hide = () => { tooltip.hidden = true; };
+
+  for (const entry of agenda) {
+    const percent = entry.capacity ? Math.min(100, Math.round(100 * entry.count / entry.capacity)) : 0;
+    const label = entry.capacity === 0 ? '—' : `${entry.count}/${entry.capacity}`;
+    // Altura pelo CSSOM: a política de segurança do painel não aceita atributo style.
+    const bar = h('span', { class: 'agenda-bar ' + entry.level });
+    bar.style.height = `${percent}%`;
+    const column = h('button', {
+      type: 'button', class: 'agenda-col' + (entry.day.label === 'hoje' ? ' today' : ''),
+      'aria-label': `${entry.day.label} ${entry.day.short}: ${entry.capacity ? `${entry.count} de ${entry.capacity} horários, ${FILL[entry.level].label}` : 'dia desmarcado'}`,
+    },
+      h('span', { class: 'agenda-value', text: label }),
+      h('span', { class: 'agenda-track' }, bar),
+      h('span', { class: 'agenda-day', text: entry.day.label }),
+      h('span', { class: 'agenda-date', text: entry.day.short }));
+    column.addEventListener('pointerenter', () => show(column, entry));
+    column.addEventListener('focus', () => show(column, entry));
+    column.addEventListener('pointerleave', hide);
+    column.addEventListener('blur', hide);
+    plot.append(column);
+  }
+
+  const summary = total
+    ? `${used} de ${total} horários ocupados nos próximos ${AGENDA_DAYS} dias${free ? ` · próximo horário livre: ${free}` : ' · todos ocupados'}`
+    : 'Nenhum horário de publicação nos próximos dias.';
+  return h('section', { class: 'agenda' },
+    h('div', { class: 'agenda-head' },
+      h('h3', { text: title }),
+      h('span', { class: 'muted small', text: subtitle })),
+    h('p', { class: 'small', text: summary }),
+    chart);
+}
+
+function agendaCard() {
+  const schedule = state.data.schedule;
+  const verticalRule = schedule.mode === 'FixedTimes'
+    ? `${(schedule.verticalSlots || []).join(', ')}`
+    : schedule.mode === 'Manual' ? `até ${schedule.chosenTimeMaxPerDay} por dia, horários escolhidos por você` : `até ${schedule.chosenTimeMaxPerDay} por dia`;
+  const legend = h('div', { class: 'agenda-legend' },
+    ['full', 'most', 'few', 'empty'].map(level => h('span', { title: FILL[level].hint }, h('span', { class: 'swatch ' + level }), FILL[level].label)));
+  return card('Agenda dos próximos dias',
+    h('p', { class: 'muted small', text: 'Cada barra é um dia: a altura mostra quantos horários já têm vídeo. Passe o mouse (ou toque) em um dia para ver os vídeos e os horários livres.' }),
+    legend,
+    h('div', { class: 'agenda-grid' },
+      agendaChart('Standard', 'Verticais', `todas as redes · ${verticalRule}`),
+      agendaChart('YouTubeHorizontal', 'Horizontais', `YouTube · ${(schedule.horizontalSlots || []).join(', ')}`)));
 }
 
 function stat(value, label) {
@@ -701,7 +867,9 @@ function render(force) {
 
   // Não redesenha o formulário da agenda enquanto o usuário está editando.
   const pickingTime = document.activeElement && document.activeElement.closest && document.activeElement.closest('.time-picker');
-  if ((state.tab !== 'schedule' || !state.scheduleDirty || force) && (!pickingTime || force)) {
+  // Nem enquanto o detalhe de um dia do gráfico está aberto (mouse em cima ou foco).
+  const readingChart = document.querySelector('.agenda-chart:hover, .agenda-col:focus');
+  if ((state.tab !== 'schedule' || !state.scheduleDirty || force) && (!pickingTime || force) && (!readingChart || force)) {
     const panel = document.getElementById('tab-' + state.tab);
     const scroll = window.scrollY;
     panel.replaceChildren(...RENDERERS[state.tab]().filter(Boolean));

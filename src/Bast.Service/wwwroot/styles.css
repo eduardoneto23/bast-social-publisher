@@ -16,6 +16,7 @@
   --info: #1d4ed8;
   --info-bg: #dbeafe;
   --neutral-bg: #e9e6f0;
+  --serious: #ea580c;
   --radius: 10px;
 }
 
@@ -38,6 +39,7 @@
     --info: #93c5fd;
     --info-bg: #172a4a;
     --neutral-bg: #2c2837;
+    --serious: #fb923c;
   }
 }
 
@@ -147,3 +149,42 @@ footer { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wr
 .time-picker { flex-wrap: wrap; margin-top: 10px; padding: 10px 12px; border: 1px dashed var(--border); border-radius: var(--radius); }
 .time-picker input[type=date], .time-picker input[type=time] { width: auto; }
 .warn-text { color: var(--warn, #9a6700); font-size: .9rem; }
+
+/* Agenda dos próximos dias (gráfico da Visão geral) */
+.agenda-grid { display: grid; gap: 20px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); margin-top: 12px; }
+.agenda { display: grid; gap: 6px; }
+.agenda-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.agenda-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 10px; font-size: .85rem; color: var(--muted); }
+.agenda-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; background: var(--neutral-bg); flex: none; }
+.swatch.full, .agenda-bar.full { background: var(--ok); }
+.swatch.most, .agenda-bar.most { background: var(--warn); }
+.swatch.few, .agenda-bar.few { background: var(--serious); }
+.swatch.empty, .agenda-bar.empty { background: var(--bad); }
+.agenda-chart { position: relative; }
+.agenda-plot { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; align-items: end; }
+.agenda-col {
+  display: grid; justify-items: center; gap: 2px; padding: 6px 0 4px; border: 0; border-radius: 8px;
+  background: none; color: var(--text); font: inherit; cursor: default;
+}
+.agenda-col:hover, .agenda-col:focus-visible { background: var(--surface-2); outline: none; }
+.agenda-col.today .agenda-day { color: var(--accent); font-weight: 700; }
+.agenda-value { font-size: .85rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.agenda-track { position: relative; display: block; width: min(28px, 70%); height: 120px; border-radius: 4px 4px 0 0; background: var(--surface-2); border-bottom: 1px solid var(--border); }
+.agenda-bar { position: absolute; left: 0; right: 0; bottom: 0; border-radius: 4px 4px 0 0; }
+.agenda-bar.empty { height: 3px !important; border-radius: 2px; }
+.agenda-bar.off { display: none; }
+.agenda-day { font-size: .8rem; color: var(--muted); }
+.agenda-date { font-size: .75rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.agenda-tip {
+  position: absolute; top: calc(100% + 4px); z-index: 5; width: max-content; max-width: min(320px, 100%);
+  padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface);
+  box-shadow: 0 8px 24px rgb(0 0 0 / .18); font-size: .85rem; pointer-events: none;
+}
+.tip-head { margin-bottom: 6px; }
+.tip-level { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: .8rem; margin-top: 2px; }
+.tip-row { display: grid; grid-template-columns: 44px 14px 1fr; gap: 6px; align-items: baseline; padding: 2px 0; }
+.tip-row.free { grid-template-columns: 44px 1fr; color: var(--muted); }
+.tip-time { font-variant-numeric: tabular-nums; font-weight: 600; }
+.tip-mark { color: var(--muted); text-align: center; }
+.tip-name { overflow-wrap: anywhere; }
