@@ -113,7 +113,7 @@ Em modo de teste do Google a autorização expira a cada 7 dias. Para evitar iss
 Dentro de `RootFolder` o programa cria esta estrutura:
 
 ```
-01 - ENVIAR/       coloque aqui as pastas dos vídeos verticais (todas as redes)
+01 - ENVIAR VERTICAL/       coloque aqui as pastas dos vídeos verticais (todas as redes)
 01 - ENVIAR YOUTUBE/  vídeos horizontais, só para o YouTube (ver abaixo)
 02 - AGENDADOS/    validados, aguardando o horário
 03 - PUBLICANDO/   em envio
@@ -123,7 +123,7 @@ Dentro de `RootFolder` o programa cria esta estrutura:
 SYSTEM/            banco de dados e credenciais criptografadas
 ```
 
-Monte a pasta do vídeo fora de `01 - ENVIAR` e mova para lá quando estiver pronta:
+Monte a pasta do vídeo fora de `01 - ENVIAR VERTICAL` e mova para lá quando estiver pronta:
 
 ```
 Video 001/
@@ -145,6 +145,7 @@ E você, curtiu essa novidade?
 ```
 
 - A **primeira linha** vira o título no YouTube (até 100 caracteres). O texto inteiro vira a descrição.
+- A imagem opcional (`thumbnail.jpg`, de preferência 1080x1920) vira a capa no YouTube Shorts, no Instagram (por um link temporário, como no Threads) e no Facebook. Uma `referencia.png` nunca é usada como capa.
 - A legenda nunca é alterada pelo programa.
 - Vídeo vertical de até 3 minutos é publicado pelo YouTube como Short.
 - As pastas são publicadas em ordem numérica: `Video 2` antes de `Video 10`.
@@ -161,12 +162,13 @@ Video 001/
 ```
 
 - Vão **só para o YouTube**, com a thumbnail.
-- São **7 por dia**, em janelas divididas igualmente das **06:00 às 23:00**: 06:00, 08:50, 11:40, 14:30, 17:20, 20:10 e 23:00, todos os dias. Isso pode ser mudado na aba Agenda.
-- Cada vídeo pega a **próxima janela livre depois do último já reservado**: colocou um, ele sai na próxima janela; colocou outro, sai na seguinte, e assim por diante. Uma janela nunca tem dois vídeos, e uma janela que coincide com o horário de um vídeo vertical é pulada.
+- São **5 por dia**, nos horários **08:00, 11:00, 14:00, 17:00 e 20:00**, todos os dias. A lista pode ser mudada na aba Agenda.
+- Cada vídeo pega o **próximo horário livre**: colocou um, ele sai no próximo horário; colocou outro, sai no seguinte, e assim por diante. Com os horários do dia ocupados, vai para o dia seguinte. Um horário nunca tem dois vídeos, e um horário que coincide com o de um vídeo vertical é pulado.
 - Pasta sem thumbnail ou com vídeo vertical fica em `01 - ENVIAR YOUTUBE` e aparece em Problemas com o motivo.
 - Se o computador estava desligado nas janelas, os vídeos passam para as próximas janelas livres, nunca todos de uma vez.
 - O YouTube só aceita thumbnail personalizada em canal verificado (youtube.com/verify). Se ele recusar, o vídeo sai com a imagem automática e o aviso aparece no painel e no Telegram.
-- Esses vídeos seguem a sua própria agenda: o modo manual e o máximo de 3 por dia valem só para `01 - ENVIAR`.
+- Esses vídeos seguem a sua própria agenda: o modo da agenda (horários fixos, manual ou intervalo) vale só para `01 - ENVIAR VERTICAL`.
+- Legenda e thumbnail podem ser criadas automaticamente no Canva antes do envio: ver [tools/thumbnail-canva/LEIA-ME.md](tools/thumbnail-canva/LEIA-ME.md) (pastas `00 - THUMB` e `00 - THUMB VERTICAL`).
 
 ### 7. Acompanhar
 
@@ -181,12 +183,13 @@ Abra no navegador:
 
 ## Agenda
 
-Há dois modos, escolhidos no painel, aba **Agenda**:
+Os vídeos verticais (`01 - ENVIAR VERTICAL`) recebem horário de um destes modos, escolhidos no painel, aba **Agenda**:
 
-- **Automático**: cada vídeo novo recebe o próximo horário livre da agenda abaixo.
+- **Horários fixos** (padrão): cada vídeo novo pega o próximo horário livre da lista, um por horário. O padrão é **10:00, 16:00 e 18:00**: com os 3 do dia ocupados (contando os já publicados e os marcados à mão), o vídeo vai para o dia seguinte. A lista é editável na Agenda.
+- **Intervalo**: cada vídeo novo recebe o próximo horário livre da agenda de intervalo (ver abaixo).
 - **Manual**: o vídeo importado fica **aguardando horário** e só é publicado quando você escolhe a data e a hora no painel, aba **Fila**. O limite padrão é de 3 vídeos por dia (no fuso da agenda), contando os já publicados naquele dia. Dois vídeos não podem ficar no mesmo minuto. Se chegar um vídeo novo, o aviso vai para o Telegram.
 
-Nos dois modos dá para mudar o horário de um vídeo que ainda não começou a publicar (botão **Mudar horário**), ou publicar na hora (**Publicar agora**). Pela API:
+Em qualquer modo dá para mudar o horário de um vídeo que ainda não começou a publicar (botão **Mudar horário**), ou publicar na hora (**Publicar agora**). Pela API:
 
 ```powershell
 $corpo = @{ localTime = '2026-11-20T14:30' } | ConvertTo-Json   # data e hora no fuso da agenda
@@ -195,9 +198,9 @@ Invoke-RestMethod http://127.0.0.1:5080/api/videos/ID-DO-VIDEO/time -Method Post
 
 No modo manual, se o computador estiver desligado no horário escolhido e passar da tolerância de atraso, o vídeo **não** é publicado depois: ele volta a aguardar horário e você recebe um aviso.
 
-### Modo automático
+### Mudar a agenda pela API
 
-O padrão é publicar às 10:00, 14:00, 18:00 e 22:00 (início às 10:00, intervalo de 4 horas), todos os dias, no fuso de São Paulo. Para mudar:
+No modo de intervalo, o padrão é publicar às 10:00, 14:00, 18:00 e 22:00 (início às 10:00, intervalo de 4 horas), todos os dias, no fuso de São Paulo. Para mudar:
 
 ```powershell
 $agenda = @{
@@ -206,7 +209,8 @@ $agenda = @{
   timeZoneId = 'America/Sao_Paulo'
   platforms = @('YouTube')
   missedPolicy = 'NextAllowedSlot'; missedGraceMinutes = 30; maxAttempts = 5
-  mode = 'Automatic'; manualMaxPerDay = 3   # opcionais: sem eles, o modo salvo é mantido
+  mode = 'FixedTimes'; manualMaxPerDay = 3   # opcionais: sem eles, o que está salvo é mantido
+  verticalSlots = '10:00, 16:00, 18:00'; horizontalSlots = '08:00, 11:00, 14:00, 17:00, 20:00'
 } | ConvertTo-Json
 Invoke-RestMethod http://127.0.0.1:5080/api/settings/schedule -Method Put -ContentType 'application/json' -Body $agenda
 ```
@@ -233,7 +237,7 @@ Os mesmos controles estão no painel, na aba Fila.
 ## Regras que o programa segue
 
 - Uma pasta só é importada quando para de mudar por 10 segundos, para não pegar cópia pela metade.
-- Pasta sem vídeo, sem TXT ou com TXT vazio fica em `01 - ENVIAR` e aparece em `/api/import-issues`.
+- Pasta sem vídeo, sem TXT ou com TXT vazio fica em `01 - ENVIAR VERTICAL` e aparece em `/api/import-issues`.
 - Vídeo corrompido ou truncado vai para `05 - ERROS`.
 - O mesmo vídeo não é importado duas vezes, mesmo com outro nome. Para repetir de propósito, crie um arquivo vazio `REIMPORTAR.txt` dentro da pasta.
 - Cada rede é controlada separadamente: a falha de uma não repete nem desfaz a publicação das outras.

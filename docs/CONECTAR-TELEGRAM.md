@@ -12,7 +12,7 @@ O sistema não publica no Telegram. Ele usa um bot **seu** para avisar, no seu c
 | ⚠️ Publicado com falhas / ❌ Falhou | Todas as redes terminaram e pelo menos uma falhou de vez. Traz o motivo informado pela plataforma. |
 | ❓ Sem confirmação | Um envio ficou sem resposta da plataforma. O sistema continua consultando e não envia de novo sem certeza. |
 | 🔑 Reconectar | Uma conta teve o acesso recusado (token vencido, senha trocada, permissão removida). |
-| 📁 Pasta com problema | Uma pasta em `01 - ENVIAR` foi recusada (sem legenda, vídeo corrompido, duplicada). |
+| 📁 Pasta com problema | Uma pasta em `01 - ENVIAR VERTICAL` foi recusada (sem legenda, vídeo corrompido, duplicada). |
 
 Há um aviso por vídeo, quando todas as redes terminam, e não um por rede. Novas tentativas automáticas não geram aviso.
 

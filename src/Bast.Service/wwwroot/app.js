@@ -332,8 +332,7 @@ function videosOnDay(date, exceptId, lane) {
 function timePicker(video) {
   const schedule = state.data.schedule;
   const lane = video.lane || 'Standard';
-  const limit = lane === 'YouTubeHorizontal' ? schedule.horizontalPerDay
-    : schedule.mode === 'Manual' ? schedule.manualMaxPerDay : schedule.maxPerDay;
+  const limit = lane === 'YouTubeHorizontal' ? schedule.horizontalPerDay : schedule.chosenTimeMaxPerDay;
   const now = localParts(new Date().toISOString());
   const draft = state.timeDrafts[video.id]
     || (video.scheduledAtUtc ? localParts(video.scheduledAtUtc) : { date: now.date, time: '' });
@@ -440,7 +439,7 @@ function renderOverview() {
     card('Contas', accounts),
     card('Próximos na fila', view.pending.length
       ? view.pending.slice(0, 3).map(v => videoItem(v))
-      : emptyText('Nada na fila. Coloque uma pasta com video.mp4 e legenda.txt em "01 - ENVIAR", ou um vídeo horizontal com legenda.txt e thumbnail em "01 - ENVIAR YOUTUBE".')),
+      : emptyText('Nada na fila. Coloque uma pasta com video.mp4 e legenda.txt em "01 - ENVIAR VERTICAL", ou um vídeo horizontal com legenda.txt e thumbnail em "01 - ENVIAR YOUTUBE".')),
     card('Últimos finalizados', view.done.length ? view.done.slice(0, 3).map(v => videoItem(v)) : emptyText('Nenhum vídeo finalizado ainda.')),
   ];
 }
@@ -565,8 +564,13 @@ function renderSchedule() {
   const form = h('form', { id: 'schedule-form', novalidate: true },
     h('div', { class: 'fields' },
       field('Como os vídeos recebem horário', h('select', { name: 'mode' },
+        h('option', { value: 'FixedTimes', selected: s.mode === 'FixedTimes', text: 'Horários fixos: um vídeo por horário da lista' }),
         h('option', { value: 'Manual', selected: s.mode === 'Manual', text: 'Manual: eu escolho o horário na Fila' }),
-        h('option', { value: 'Automatic', selected: s.mode === 'Automatic', text: 'Automático: próximo horário livre da agenda' }))),
+        h('option', { value: 'Automatic', selected: s.mode === 'Automatic', text: 'Intervalo: primeira publicação + intervalo' }))),
+      field('Horários dos verticais (horários fixos)', h('input', {
+        type: 'text', name: 'verticalSlots', required: true, placeholder: '10:00, 16:00, 18:00',
+        value: Array.isArray(s.verticalSlots) ? s.verticalSlots.join(', ') : s.verticalSlots,
+      })),
       field('Máximo por dia no modo manual', number('manualMaxPerDay', s.manualMaxPerDay, 1, 100)),
       field('Primeira publicação do dia', h('input', { type: 'time', name: 'startTime', value: s.startTime, required: true })),
       field('Última publicação até', h('input', { type: 'time', name: 'endTime', value: s.endTime, required: true })),
@@ -583,10 +587,11 @@ function renderSchedule() {
           h('input', { type: 'checkbox', name: 'days', value, checked: s.days.includes(value) }), label)))),
       h('fieldset', {}, h('legend', { text: 'Vídeos horizontais (pasta 01 - ENVIAR YOUTUBE, só YouTube)' }),
         h('div', { class: 'fields' },
-          field('Primeira janela', h('input', { type: 'time', name: 'horizontalStartTime', value: s.horizontalStartTime, required: true })),
-          field('Última janela', h('input', { type: 'time', name: 'horizontalEndTime', value: s.horizontalEndTime, required: true })),
-          field('Vídeos por dia', number('horizontalPerDay', s.horizontalPerDay, 1, 48))),
-        h('p', { class: 'muted small', text: `Janelas de hoje em diante: ${(state.data.schedule.horizontalTimes || []).join(', ')}. Cada vídeo pega a próxima janela livre, um por janela, todos os dias. Pasta precisa de vídeo horizontal, legenda.txt e thumbnail.` })),
+          field('Horários do dia', h('input', {
+            type: 'text', name: 'horizontalSlots', required: true, placeholder: '08:00, 11:00, 14:00, 17:00, 20:00',
+            value: Array.isArray(s.horizontalSlots) ? s.horizontalSlots.join(', ') : s.horizontalSlots,
+          }))),
+        h('p', { class: 'muted small', text: `${state.data.schedule.horizontalPerDay} vídeo(s) por dia. Cada vídeo pega o próximo horário livre, um por horário, todos os dias; dia cheio vai para o dia seguinte. Pasta precisa de vídeo horizontal, legenda.txt e thumbnail.` })),
       h('fieldset', {}, h('legend', { text: 'Redes que recebem publicações' }),
         h('div', { class: 'checks' }, PLATFORMS.map(platform => h('label', {},
           h('input', { type: 'checkbox', name: 'platforms', value: platform, checked: s.platforms.includes(platform) }),
@@ -619,9 +624,8 @@ function renderSchedule() {
       maxAttempts: Number(values.get('maxAttempts')),
       mode: values.get('mode'),
       manualMaxPerDay: Number(values.get('manualMaxPerDay')),
-      horizontalStartTime: values.get('horizontalStartTime'),
-      horizontalEndTime: values.get('horizontalEndTime'),
-      horizontalPerDay: Number(values.get('horizontalPerDay')),
+      verticalSlots: values.get('verticalSlots'),
+      horizontalSlots: values.get('horizontalSlots'),
     };
     if (state.busy) return;
     state.busy = true;
@@ -634,7 +638,7 @@ function renderSchedule() {
 
   return [card('Agenda de publicação',
     h('p', { class: 'muted small', text: 'Cada vídeo ocupa um horário, e todas as redes marcadas recebem o vídeo nesse horário. Dois vídeos nunca saem juntos.' }),
-    h('p', { class: 'muted small', text: 'No modo manual, o vídeo importado fica aguardando até você escolher a data e a hora na aba Fila, com o máximo de vídeos por dia acima. Primeira publicação, intervalo e máximo por dia valem para o modo automático. Em qualquer modo dá para mudar o horário de um vídeo que ainda não começou.' }),
+    h('p', { class: 'muted small', text: 'Horários fixos: cada vídeo vertical (pasta 01 - ENVIAR VERTICAL) pega o próximo horário livre da lista, um por horário; com a lista cheia no dia, vai para o dia seguinte. Manual: o vídeo fica aguardando até você escolher a data e a hora na aba Fila. Intervalo: usa primeira publicação, intervalo e máximo por dia. Em qualquer modo dá para mudar o horário de um vídeo que ainda não começou na aba Fila.' }),
     form)];
 }
 

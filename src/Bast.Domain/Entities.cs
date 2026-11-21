@@ -122,7 +122,7 @@ public sealed class PublicationAttempt
     public string? ErrorMessage { get; set; }
 }
 
-/// <summary>Problema encontrado em uma pasta de 01 - ENVIAR que impediu a importação.</summary>
+/// <summary>Problema encontrado em uma pasta de 01 - ENVIAR VERTICAL que impediu a importação.</summary>
 public sealed class ImportIssue
 {
     public Guid Id { get; set; }

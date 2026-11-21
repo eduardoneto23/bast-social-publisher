@@ -33,7 +33,7 @@ try {
     Check 'API responde' ($null -ne $health)
     Check 'health ok (banco, ffprobe, ffmpeg)' ($health.status -eq 'ok')
     $lines.Add("      pasta principal: $($health.rootFolder)")
-    Check 'estrutura de pastas criada' ((Test-Path (Join-Path $health.rootFolder '01 - ENVIAR')) -and (Test-Path (Join-Path $health.rootFolder 'SYSTEM\bast.db')))
+    Check 'estrutura de pastas criada' ((Test-Path (Join-Path $health.rootFolder '01 - ENVIAR VERTICAL')) -and (Test-Path (Join-Path $health.rootFolder 'SYSTEM\bast.db')))
 
     # Queda: mata o processo sem aviso; o Windows deve reiniciar o servico em 5 segundos.
     $before = Service-Pid

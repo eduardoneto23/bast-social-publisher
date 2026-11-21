@@ -15,13 +15,13 @@ Atualizado em 2026-11-14. Este arquivo é o ponto de retomada entre sessões de 
 | 7. Nuvem | Não iniciada |
 | 8. Distribuição | Não iniciada |
 
-**O YouTube está conectado e publicando de verdade.** As demais redes não têm conector: um vídeo colocado em `01 - ENVIAR` é agendado e enviado só para o YouTube.
+**O YouTube está conectado e publicando de verdade.** As demais redes não têm conector: um vídeo colocado em `01 - ENVIAR VERTICAL` é agendado e enviado só para o YouTube.
 
 ## Concluído na Etapa 1
 
 - Solução .NET 10 em camadas: `Bast.Domain`, `Bast.Application`, `Bast.Infrastructure`, `Bast.Service`, `Bast.Tests`.
 - Banco SQLite (EF Core, modo WAL), máquina de estados de publicação com os 10 estados.
-- Monitor de `01 - ENVIAR`, espera pelo fim da cópia, inspeção da pasta, leitura integral da legenda.
+- Monitor de `01 - ENVIAR VERTICAL`, espera pelo fim da cópia, inspeção da pasta, leitura integral da legenda.
 - Validação do vídeo com ffprobe e decodificação do trecho final com ffmpeg.
 - Duplicidade por SHA-256; reimportação intencional com `REIMPORTAR.txt`.
 - Importação resistente a queda; ordenação numérica.

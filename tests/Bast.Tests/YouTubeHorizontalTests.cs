@@ -1,14 +1,14 @@
-using Bast.Application.Import;
+﻿using Bast.Application.Import;
 using Bast.Application.Publishing;
 using Bast.Domain;
 using Microsoft.EntityFrameworkCore;
 
 namespace Bast.Tests;
 
-/// <summary>Fila dos vídeos horizontais: pasta 01 - ENVIAR YOUTUBE, só YouTube, 7 janelas por dia das 06:00 às 23:00.</summary>
+/// <summary>Fila dos vídeos horizontais: pasta 01 - ENVIAR YOUTUBE, só YouTube, um vídeo por horário da lista (08:00, 11:00, 14:00, 17:00, 20:00).</summary>
 public class YouTubeHorizontalTests
 {
-    // Relógio inicial: 14/11/2026 09:00 em São Paulo. Janelas: 06:00, 08:50, 11:40, 14:30, 17:20, 20:10, 23:00.
+    // Relógio inicial: 14/11/2026 09:00 em São Paulo. Janelas: 08:00, 11:00, 14:00, 17:00, 20:00.
     private static DateTime At(int day, int hour, int minute = 0) => new(2026, 11, day, hour, minute, 0);
 
     private static EngineHarness Harness(params Platform[] connected)
@@ -40,11 +40,11 @@ public class YouTubeHorizontalTests
     }
 
     [Fact]
-    public void Seven_windows_from_6_to_23_are_split_evenly()
+    public void Default_windows_are_the_five_fixed_times()
     {
         var times = SlotCalculator.HorizontalTimes(new ScheduleSettings());
 
-        Assert.Equal(["06:00", "08:50", "11:40", "14:30", "17:20", "20:10", "23:00"], times.Select(t => t.ToString("HH:mm")).ToArray());
+        Assert.Equal(["08:00", "11:00", "14:00", "17:00", "20:00"], times.Select(t => t.ToString("HH:mm")).ToArray());
     }
 
     [Fact]
@@ -58,7 +58,7 @@ public class YouTubeHorizontalTests
         var video = h.Video("Longo 1");
         Assert.Equal(VideoLane.YouTubeHorizontal, video.Lane);
         Assert.Equal("thumbnail.jpg", video.ThumbnailFileName);
-        Assert.Equal(EngineHarness.Local(14, 11, 40), video.ScheduledAtUtc);
+        Assert.Equal(EngineHarness.Local(14, 11), video.ScheduledAtUtc);
         var publication = Assert.Single(video.Publications);
         Assert.Equal(Platform.YouTube, publication.Platform);
         Assert.True(Directory.Exists(Path.Combine(h.Env.Workspace.PathOf(WorkspaceFolder.Scheduled), "Longo 1")));
@@ -73,13 +73,13 @@ public class YouTubeHorizontalTests
         await h.CycleAsync();
 
         Assert.Equal(
-            [EngineHarness.Local(14, 11, 40), EngineHarness.Local(14, 14, 30), EngineHarness.Local(14, 17, 20),
-             EngineHarness.Local(14, 20, 10), EngineHarness.Local(14, 23, 0), EngineHarness.Local(15, 6, 0)],
+            [EngineHarness.Local(14, 11), EngineHarness.Local(14, 14), EngineHarness.Local(14, 17),
+             EngineHarness.Local(14, 20), EngineHarness.Local(15, 8), EngineHarness.Local(15, 11)],
             Enumerable.Range(1, 6).Select(i => h.Video($"Longo {i}").ScheduledAtUtc!.Value).ToArray());
     }
 
     [Fact]
-    public async Task A_video_dropped_later_goes_after_the_last_reserved_window()
+    public async Task A_video_dropped_later_takes_the_next_free_window()
     {
         using var h = Harness();
         await ImportHorizontalAsync(h, "Longo 1");
@@ -89,15 +89,15 @@ public class YouTubeHorizontalTests
         h.SetTime(EngineHarness.Local(14, 10));
         await ImportHorizontalAsync(h, "Longo 2");
         await h.CycleAsync();
-        Assert.Equal(EngineHarness.Local(14, 14, 30), h.Video("Longo 2").ScheduledAtUtc);
+        Assert.Equal(EngineHarness.Local(14, 14), h.Video("Longo 2").ScheduledAtUtc);
 
         // Depois que o primeiro saiu, o próximo vídeo ainda respeita a fila.
-        h.SetTime(EngineHarness.Local(14, 11, 40));
+        h.SetTime(EngineHarness.Local(14, 11));
         await h.CycleAsync();
         Assert.Equal(VideoState.Published, h.Video("Longo 1").State);
         await ImportHorizontalAsync(h, "Longo 3");
         await h.CycleAsync();
-        Assert.Equal(EngineHarness.Local(14, 17, 20), h.Video("Longo 3").ScheduledAtUtc);
+        Assert.Equal(EngineHarness.Local(14, 17), h.Video("Longo 3").ScheduledAtUtc);
         Assert.Single(h.Connectors[Platform.YouTube].PublishCalls);
     }
 
@@ -145,11 +145,11 @@ public class YouTubeHorizontalTests
 
         await h.CycleAsync();
 
-        // A fila principal continua no automático de 4 em 4 h, a partir das 10:00, em todas as redes.
+        // A fila dos verticais segue os horários fixos dela (10:00 é o primeiro), em todas as redes.
         Assert.Equal(EngineHarness.Local(14, 10), h.Video("Video 1").ScheduledAtUtc);
         Assert.Equal(4, h.Video("Video 1").Publications.Count);
         Assert.Equal(VideoLane.Standard, h.Video("Video 1").Lane);
-        Assert.Equal(EngineHarness.Local(14, 14, 30), h.Video("Longo 2").ScheduledAtUtc);
+        Assert.Equal(EngineHarness.Local(14, 14), h.Video("Longo 2").ScheduledAtUtc);
     }
 
     [Fact]
@@ -163,7 +163,7 @@ public class YouTubeHorizontalTests
 
         await h.CycleAsync();
 
-        Assert.Equal(EngineHarness.Local(14, 11, 40), h.Video("Longo 1").ScheduledAtUtc);
+        Assert.Equal(EngineHarness.Local(14, 11), h.Video("Longo 1").ScheduledAtUtc);
         Assert.Null(h.Video("Video 1").ScheduledAtUtc);
 
         // Três verticais no dia não bloqueiam os horizontais, e vice-versa: cada fila tem o seu limite.
@@ -182,16 +182,16 @@ public class YouTubeHorizontalTests
             "America/Sao_Paulo", [Platform.Instagram, Platform.YouTube], MissedSlotPolicy.NextAllowedSlot, 30, 5, ScheduleMode.Manual, 3), default);
         await h.ImportAsync("Video 1");
         await h.CycleAsync();
-        Assert.True((await h.Scheduling.SetTimeAsync(h.Video("Video 1").Id, At(14, 11, 40), default)).Ok);
+        Assert.True((await h.Scheduling.SetTimeAsync(h.Video("Video 1").Id, At(14, 11), default)).Ok);
 
         await ImportHorizontalAsync(h, "Longo 1");
         await h.CycleAsync();
-        Assert.Equal(EngineHarness.Local(14, 14, 30), h.Video("Longo 1").ScheduledAtUtc);
+        Assert.Equal(EngineHarness.Local(14, 14), h.Video("Longo 1").ScheduledAtUtc);
 
         // E um vertical não pode ser marcado em cima de uma janela já ocupada por um horizontal.
         await h.ImportAsync("Video 2");
         await h.CycleAsync();
-        var clash = await h.Scheduling.SetTimeAsync(h.Video("Video 2").Id, At(14, 14, 30), default);
+        var clash = await h.Scheduling.SetTimeAsync(h.Video("Video 2").Id, At(14, 14), default);
         Assert.False(clash.Ok);
         Assert.Contains("Longo 1", clash.Message);
     }
@@ -203,14 +203,14 @@ public class YouTubeHorizontalTests
         await ImportHorizontalAsync(h, "Longo 1", "Longo 2");
         await h.CycleAsync();
 
-        // Computador desligado das 09:00 às 15:30: as janelas 11:40 e 14:30 passaram.
+        // Computador desligado das 09:00 às 15:30: as janelas 11:00 e 14:00 passaram.
         h.SetTime(EngineHarness.Local(14, 15, 30));
         await h.CycleAsync();
 
         Assert.Equal(0, h.TotalPublishCalls);
-        Assert.Equal(EngineHarness.Local(14, 17, 20), h.Video("Longo 1").ScheduledAtUtc);
-        Assert.Equal(EngineHarness.Local(14, 20, 10), h.Video("Longo 2").ScheduledAtUtc);
-        Assert.Equal(EngineHarness.Local(14, 17, 20), h.Publication("Longo 1", Platform.YouTube).ScheduledAtUtc);
+        Assert.Equal(EngineHarness.Local(14, 17), h.Video("Longo 1").ScheduledAtUtc);
+        Assert.Equal(EngineHarness.Local(14, 20), h.Video("Longo 2").ScheduledAtUtc);
+        Assert.Equal(EngineHarness.Local(14, 17), h.Publication("Longo 1", Platform.YouTube).ScheduledAtUtc);
     }
 
     [Fact]
@@ -237,7 +237,7 @@ public class YouTubeHorizontalTests
         await ImportHorizontalAsync(h, "Longo 1");
         await h.CycleAsync();
 
-        h.SetTime(EngineHarness.Local(14, 11, 40));
+        h.SetTime(EngineHarness.Local(14, 11));
         await h.CycleAsync();
 
         var publication = h.Publication("Longo 1", Platform.YouTube);
@@ -249,21 +249,25 @@ public class YouTubeHorizontalTests
     }
 
     [Fact]
-    public async Task Window_settings_are_saved_and_impossible_ones_refused()
+    public async Task Window_settings_are_saved_normalized_and_invalid_ones_refused()
     {
         using var h = Harness();
         var input = new ScheduleSettingsInput("10:00", "23:59", 240, 10, Enum.GetValues<DayOfWeek>(), "America/Sao_Paulo",
-            [Platform.YouTube], MissedSlotPolicy.NextAllowedSlot, 30, 5, HorizontalStartTime: "07:00", HorizontalEndTime: "22:00", HorizontalPerDay: 4);
+            [Platform.YouTube], MissedSlotPolicy.NextAllowedSlot, 30, 5, VerticalSlots: "18:00; 9:30 16:00", HorizontalSlots: "22:00,07:00, 12:00,07:00");
 
         Assert.Empty(await h.Commands.UpdateSettingsAsync(input, default));
         var settings = await h.Scheduling.GetSettingsAsync(default);
-        Assert.Equal(["07:00", "12:00", "17:00", "22:00"], SlotCalculator.HorizontalTimes(settings).Select(t => t.ToString("HH:mm")).ToArray());
+        Assert.Equal("07:00,12:00,22:00", settings.HorizontalSlots);
+        Assert.Equal("09:30,16:00,18:00", settings.VerticalSlots);
+        Assert.Equal(3, settings.HorizontalPerDay);
 
-        var tooMany = await h.Commands.UpdateSettingsAsync(input with { HorizontalStartTime = "10:00", HorizontalEndTime = "10:02", HorizontalPerDay = 5 }, default);
-        Assert.Contains(tooMany, p => p.Contains("janelas demais"));
+        var invalid = await h.Commands.UpdateSettingsAsync(input with { HorizontalSlots = "10h, 12:00" }, default);
+        Assert.Contains(invalid, p => p.Contains("horizontais") && p.Contains("HH:mm"));
+        var empty = await h.Commands.UpdateSettingsAsync(input with { VerticalSlots = " " }, default);
+        Assert.Contains(empty, p => p.Contains("pelo menos um horário para os vídeos verticais"));
 
-        // Script antigo, sem os campos novos, mantém as janelas salvas.
-        Assert.Empty(await h.Commands.UpdateSettingsAsync(input with { HorizontalStartTime = null, HorizontalEndTime = null, HorizontalPerDay = null }, default));
-        Assert.Equal(4, (await h.Scheduling.GetSettingsAsync(default)).HorizontalPerDay);
+        // Script antigo, sem os campos novos, mantém os horários salvos.
+        Assert.Empty(await h.Commands.UpdateSettingsAsync(input with { VerticalSlots = null, HorizontalSlots = null }, default));
+        Assert.Equal("07:00,12:00,22:00", (await h.Scheduling.GetSettingsAsync(default)).HorizontalSlots);
     }
 }

@@ -138,7 +138,11 @@ public sealed class FacebookConnector(IHttpClientFactory httpFactory, MetaAuth a
             var url = permalink is null ? $"https://www.facebook.com/reel/{videoId}"
                 : permalink.StartsWith("http", StringComparison.OrdinalIgnoreCase) ? permalink
                 : "https://www.facebook.com" + permalink;
-            return PublishOutcome.Published(videoId, url);
+            var thumbnailProblem = request.ThumbnailPath is null ? null : await TrySetThumbnailAsync(connection, videoId, request.ThumbnailPath, ct);
+            return PublishOutcome.Published(videoId, url) with
+            {
+                Warning = thumbnailProblem is null ? null : $"A capa não foi aplicada no Facebook: {thumbnailProblem} O Reel saiu com a capa automática.",
+            };
         }
 
         var failure = PhaseError(processing) ?? PhaseError(publishing) ?? PhaseError(uploading);
@@ -161,6 +165,32 @@ public sealed class FacebookConnector(IHttpClientFactory httpFactory, MetaAuth a
         }
 
         return PublishOutcome.Processing($"{stage}:{videoId}", TimeSpan.FromSeconds(30));
+    }
+
+    /// <summary>
+    /// Envia a imagem da pasta como capa preferida do Reel (POST /{video-id}/thumbnails). Uma falha não
+    /// desfaz a publicação: vira aviso.
+    /// </summary>
+    /// <returns>Nulo quando a capa foi aplicada; senão, o motivo.</returns>
+    private async Task<string?> TrySetThumbnailAsync(MetaConnection connection, string videoId, string thumbnailPath, CancellationToken ct)
+    {
+        if (!File.Exists(thumbnailPath)) return "o arquivo da imagem não foi encontrado.";
+        try
+        {
+            using var form = new MultipartFormDataContent();
+            var image = new ByteArrayContent(await File.ReadAllBytesAsync(thumbnailPath, ct));
+            image.Headers.ContentType = new MediaTypeHeaderValue(
+                Path.GetExtension(thumbnailPath).Equals(".png", StringComparison.OrdinalIgnoreCase) ? "image/png" : "image/jpeg");
+            form.Add(image, "source", Path.GetFileName(thumbnailPath));
+            form.Add(new StringContent("true"), "is_preferred");
+
+            var result = await SendAsync(HttpMethod.Post, $"{Graph.Api}/{videoId}/thumbnails", connection.PageToken, form, ct);
+            return result.Error is null ? null : result.Error.Message;
+        }
+        catch (Exception ex) when (Graph.IsConnectivity(ex, ct))
+        {
+            return $"sem conexão ({ex.Message}).";
+        }
     }
 
     private static string? PhaseError(JsonElement phase)

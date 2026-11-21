@@ -28,11 +28,15 @@ public sealed class FakeMeta : HttpMessageHandler, IHttpClientFactory
     public bool FacebookProcessed { get; set; } = true;
     public string? FacebookProcessingError { get; set; }
     public int? DropFacebookUploadAfterBytes { get; set; }
+    public byte[]? FacebookThumbnail { get; private set; }
+    public string? FacebookThumbnailPreferred { get; private set; }
+    public string? FacebookThumbnailError { get; set; }
 
     // Instagram
     public int ContainersCreated { get; private set; }
     public int MediaPublishCalls { get; private set; }
     public string? InstagramCaption { get; private set; }
+    public List<string?> InstagramCoverUrls { get; } = [];
     public string ContainerStatus { get; set; } = "FINISHED";
     public Dictionary<string, byte[]> ContainerUploads { get; } = [];
     public bool InstagramPublished { get; private set; }
@@ -101,6 +105,19 @@ public sealed class FakeMeta : HttpMessageHandler, IHttpClientFactory
             return Json("""{"success":true}""");
         }
 
+        if (path.EndsWith("/vid-1/thumbnails", StringComparison.Ordinal))
+        {
+            if (FacebookThumbnailError is not null) return Error(380, FacebookThumbnailError);
+            foreach (var part in (MultipartFormDataContent)request.Content!)
+            {
+                var name = part.Headers.ContentDisposition?.Name?.Trim('"');
+                if (name == "source") FacebookThumbnail = await part.ReadAsByteArrayAsync(ct);
+                if (name == "is_preferred") FacebookThumbnailPreferred = await part.ReadAsStringAsync(ct);
+            }
+
+            return Json("""{"data":[{"id":"thumb-1","is_preferred":true}]}""");
+        }
+
         if (path.EndsWith("/vid-1", StringComparison.Ordinal))
         {
             var uploaded = FacebookDeclaredSize is not null && FacebookReceived.Length == FacebookDeclaredSize;
@@ -125,6 +142,7 @@ public sealed class FakeMeta : HttpMessageHandler, IHttpClientFactory
             var form = HttpUtility.ParseQueryString(await request.Content!.ReadAsStringAsync(ct));
             if (form["media_type"] != "REELS" || form["upload_type"] != "resumable") return Error(100, "Invalid parameter");
             InstagramCaption = form["caption"];
+            InstagramCoverUrls.Add(form["cover_url"]);
             var id = $"c{++ContainersCreated}";
             return Json($$"""{"id":"{{id}}","uri":"https://rupload.facebook.com/ig-api-upload/v27.0/{{id}}"}""");
         }
@@ -183,7 +201,7 @@ public sealed class MetaHarness : IDisposable
         }
 
         Facebook = new FacebookConnector(Meta, Auth);
-        Instagram = new InstagramConnector(Meta, Auth, Options.Create(new InstagramOptions()));
+        Instagram = new InstagramConnector(Meta, Auth, Options.Create(new InstagramOptions()), Files);
         VideoPath = Path.Combine(Env.Root, "video.mp4");
         FileBytes = RandomNumberGenerator.GetBytes(300_000);
         File.WriteAllBytes(VideoPath, FileBytes);
@@ -201,9 +219,11 @@ public sealed class MetaHarness : IDisposable
     public string VideoPath { get; }
     public byte[] FileBytes { get; }
     public List<string> SavedIds { get; } = [];
+    public FakeFileShare Files { get; } = new();
+    public Guid PublicationId { get; } = Guid.NewGuid();
 
-    public PublishRequest Request() => new(
-        Guid.NewGuid(), "chave-1", VideoPath, null, Caption, "GTA 6 VAI TER POSTER!",
+    public PublishRequest Request(string? thumbnailPath = null) => new(
+        PublicationId, "chave-1", VideoPath, thumbnailPath, Caption, "GTA 6 VAI TER POSTER!",
         SavedIds.LastOrDefault(),
         id => { SavedIds.Add(id); return Task.CompletedTask; });
 
@@ -603,5 +623,99 @@ public class MetaThroughEngineTests
         Assert.Equal("https://www.instagram.com/reel/ABC123/", instagram.ExternalUrl);
         Assert.Equal(1, h.Meta.ReelsPublished);
         Assert.Equal(1, h.Meta.MediaPublishCalls);
+    }
+}
+
+public class ReelCoverTests
+{
+    private static string Cover(MetaHarness h)
+    {
+        var path = Path.Combine(h.Env.Root, "thumbnail.jpg");
+        File.WriteAllBytes(path, [0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3]);
+        return path;
+    }
+
+    [Fact]
+    public async Task Instagram_gets_the_cover_by_a_temporary_link_closed_after_processing()
+    {
+        using var h = new MetaHarness();
+        h.Meta.ContainerStatus = "IN_PROGRESS";
+        var cover = Cover(h);
+
+        await h.Instagram.PublishAsync(h.Request(cover), default);
+
+        var url = Assert.Single(h.Meta.InstagramCoverUrls);
+        Assert.StartsWith("https://exemplo.trycloudflare.com/", url);
+        Assert.Contains(h.PublicationId, h.Files.Open);
+
+        // Ainda processando: o link continua aberto. Terminou: fecha e publica.
+        await h.Instagram.CheckAsync(h.Request(cover), default);
+        Assert.Contains(h.PublicationId, h.Files.Open);
+        h.Meta.ContainerStatus = "FINISHED";
+        Assert.Equal(PublishOutcomeKind.Published, (await h.Instagram.CheckAsync(h.Request(cover), default)).Kind);
+        Assert.Empty(h.Files.Open);
+    }
+
+    [Fact]
+    public async Task Without_an_image_or_a_link_the_reel_goes_with_the_automatic_cover()
+    {
+        using var h = new MetaHarness();
+        await h.Instagram.PublishAsync(h.Request(), default);
+        Assert.Null(Assert.Single(h.Meta.InstagramCoverUrls));
+
+        using var h2 = new MetaHarness();
+        h2.Files.Next = PublicFileShareResult.NotInstalled("cloudflared não encontrado");
+        var sent = await h2.Instagram.PublishAsync(h2.Request(Cover(h2)), default);
+        Assert.Equal(PublishOutcomeKind.Processing, sent.Kind);
+        Assert.Null(Assert.Single(h2.Meta.InstagramCoverUrls));
+    }
+
+    [Fact]
+    public async Task Processing_error_with_the_cover_is_retried_once_without_it()
+    {
+        using var h = new MetaHarness();
+        h.Meta.ContainerStatus = "ERROR";
+        var cover = Cover(h);
+
+        await h.Instagram.PublishAsync(h.Request(cover), default);
+        var failed = await h.Instagram.CheckAsync(h.Request(cover), default);
+        Assert.Equal(PublishOutcomeKind.Transient, failed.Kind);
+        Assert.Contains("sem a capa", failed.Error);
+        Assert.Equal("", h.SavedIds.Last());
+
+        await h.Instagram.PublishAsync(h.Request(cover), default);
+        Assert.Equal(2, h.Meta.InstagramCoverUrls.Count);
+        Assert.Null(h.Meta.InstagramCoverUrls[1]);
+        Assert.Equal(PublishOutcomeKind.Permanent, (await h.Instagram.CheckAsync(h.Request(cover), default)).Kind);
+    }
+
+    [Fact]
+    public async Task Facebook_sets_the_cover_as_preferred_thumbnail_after_publishing()
+    {
+        using var h = new MetaHarness();
+        var cover = Cover(h);
+
+        await h.Facebook.PublishAsync(h.Request(cover), default);
+        var published = await h.Facebook.CheckAsync(h.Request(cover), default);
+
+        Assert.Equal(PublishOutcomeKind.Published, published.Kind);
+        Assert.Null(published.Warning);
+        Assert.Equal(File.ReadAllBytes(cover), h.Meta.FacebookThumbnail);
+        Assert.Equal("true", h.Meta.FacebookThumbnailPreferred);
+    }
+
+    [Fact]
+    public async Task Facebook_refused_cover_is_only_a_warning()
+    {
+        using var h = new MetaHarness();
+        h.Meta.FacebookThumbnailError = "The thumbnail file you selected is in a format that we don't support.";
+        var cover = Cover(h);
+
+        await h.Facebook.PublishAsync(h.Request(cover), default);
+        var published = await h.Facebook.CheckAsync(h.Request(cover), default);
+
+        Assert.Equal(PublishOutcomeKind.Published, published.Kind);
+        Assert.Contains("capa não foi aplicada no Facebook", published.Warning);
+        Assert.Contains("format", published.Warning);
     }
 }

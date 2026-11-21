@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace Bast.Domain;
 
 /// <summary>O que fazer quando o horário de um vídeo passou sem publicação (computador desligado, serviço parado).</summary>
@@ -16,6 +18,34 @@ public enum ScheduleMode
     Automatic,
     /// <summary>O vídeo espera o usuário escolher o horário no painel.</summary>
     Manual,
+    /// <summary>Cada vídeo pega o próximo horário fixo livre da lista (ex.: 10:00, 16:00, 18:00), um por horário.</summary>
+    FixedTimes,
+}
+
+/// <summary>Lista de horários do dia escrita como texto ("10:00, 16:00, 18:00").</summary>
+public static class TimeList
+{
+    private static readonly char[] Separators = [',', ';', ' ', '\n', '\r', '\t'];
+    private static readonly string[] Formats = ["H:mm", "HH:mm"];
+
+    /// <summary>Lê os horários (HH:mm), sem repetir e em ordem. Falso se algum item não é um horário.</summary>
+    public static bool TryParse(string? text, out List<TimeOnly> times)
+    {
+        times = [];
+        foreach (var item in (text ?? "").Split(Separators, StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (!TimeOnly.TryParseExact(item, Formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var time)) return false;
+            times.Add(time);
+        }
+
+        times = times.Distinct().Order().ToList();
+        return true;
+    }
+
+    public static IReadOnlyList<TimeOnly> Parse(string? text) => TryParse(text, out var times) ? times : [];
+
+    public static string Format(IEnumerable<TimeOnly> times) =>
+        string.Join(",", times.Select(t => t.ToString("HH:mm", CultureInfo.InvariantCulture)));
 }
 
 /// <summary>Regras de operação configuradas uma única vez pelo usuário. Existe uma única linha (Id = 1).</summary>
@@ -25,7 +55,7 @@ public sealed class ScheduleSettings
 
     public int Id { get; set; } = SingletonId;
 
-    public ScheduleMode Mode { get; set; } = ScheduleMode.Automatic;
+    public ScheduleMode Mode { get; set; } = ScheduleMode.FixedTimes;
 
     /// <summary>No modo manual, quantos vídeos podem ser marcados para o mesmo dia (no fuso configurado).</summary>
     public int ManualMaxPerDay { get; set; } = 3;
@@ -54,16 +84,28 @@ public sealed class ScheduleSettings
 
     public int MaxAttempts { get; set; } = 5;
 
-    /// <summary>Vídeos horizontais do YouTube: primeira e última janela do dia e quantas janelas há entre elas (divisão igual).</summary>
-    public TimeOnly HorizontalStartTime { get; set; } = new(6, 0);
-    public TimeOnly HorizontalEndTime { get; set; } = new(23, 0);
-    public int HorizontalPerDay { get; set; } = 7;
+    /// <summary>Vídeos verticais no modo de horários fixos: os horários do dia, separados por vírgula. Um vídeo por horário.</summary>
+    public string VerticalSlots { get; set; } = "10:00,16:00,18:00";
+
+    /// <summary>Vídeos horizontais do YouTube: os horários do dia, separados por vírgula. Um vídeo por horário, todos os dias.</summary>
+    public string HorizontalSlots { get; set; } = "08:00,11:00,14:00,17:00,20:00";
+
+    public IReadOnlyList<TimeOnly> VerticalSlotTimes => TimeList.Parse(VerticalSlots);
+    public IReadOnlyList<TimeOnly> HorizontalSlotTimes => TimeList.Parse(HorizontalSlots);
+
+    /// <summary>Vídeos horizontais por dia: um por horário.</summary>
+    public int HorizontalPerDay => HorizontalSlotTimes.Count;
 
     public bool Paused { get; set; }
     public DateTime UpdatedAtUtc { get; set; }
 
     /// <summary>Limite de vídeos por dia que vale para horários escolhidos à mão.</summary>
-    public int ChosenTimeMaxPerDay => Mode == ScheduleMode.Manual ? ManualMaxPerDay : MaxPerDay;
+    public int ChosenTimeMaxPerDay => Mode switch
+    {
+        ScheduleMode.Manual => ManualMaxPerDay,
+        ScheduleMode.FixedTimes => VerticalSlotTimes.Count,
+        _ => MaxPerDay,
+    };
 
     public bool IsDayEnabled(DayOfWeek day) => (DaysMask & (1 << (int)day)) != 0;
 
@@ -88,10 +130,10 @@ public sealed class ScheduleSettings
         if (EndTime < StartTime) problems.Add("O último horário permitido não pode ser anterior ao horário inicial.");
         if (MissedGraceMinutes < 0) problems.Add("A tolerância de atraso não pode ser negativa.");
         if (MaxAttempts < 1) problems.Add("O limite de tentativas deve ser de pelo menos 1.");
-        if (HorizontalPerDay < 1) problems.Add("Os vídeos horizontais precisam de pelo menos 1 janela por dia.");
-        if (HorizontalEndTime < HorizontalStartTime) problems.Add("A última janela dos vídeos horizontais não pode ser anterior à primeira.");
-        else if (HorizontalPerDay > 1 && (HorizontalEndTime - HorizontalStartTime).TotalMinutes < HorizontalPerDay - 1)
-            problems.Add("Há janelas demais para os vídeos horizontais nesse intervalo: elas precisam ficar pelo menos 1 minuto uma da outra.");
+        if (!TimeList.TryParse(VerticalSlots, out var vertical)) problems.Add("Os horários dos vídeos verticais devem estar no formato HH:mm, separados por vírgula.");
+        else if (vertical.Count == 0) problems.Add("Informe pelo menos um horário para os vídeos verticais.");
+        if (!TimeList.TryParse(HorizontalSlots, out var horizontal)) problems.Add("Os horários dos vídeos horizontais devem estar no formato HH:mm, separados por vírgula.");
+        else if (horizontal.Count == 0) problems.Add("Informe pelo menos um horário para os vídeos horizontais.");
         if (!TimeZoneInfo.TryFindSystemTimeZoneById(TimeZoneId, out _)) problems.Add($"Fuso horário desconhecido: {TimeZoneId}.");
         return problems;
     }
@@ -101,41 +143,40 @@ public static class SlotCalculator
 {
     private const int SearchDays = 400;
 
-    /// <summary>Janelas do dia dos vídeos horizontais: da primeira à última, divididas igualmente (arredondadas ao minuto).</summary>
-    public static IReadOnlyList<TimeOnly> HorizontalTimes(ScheduleSettings settings)
-    {
-        var start = settings.HorizontalStartTime.Hour * 60 + settings.HorizontalStartTime.Minute;
-        var end = settings.HorizontalEndTime.Hour * 60 + settings.HorizontalEndTime.Minute;
-        if (settings.HorizontalPerDay <= 1) return [TimeOnly.FromTimeSpan(TimeSpan.FromMinutes(start))];
-
-        return Enumerable.Range(0, settings.HorizontalPerDay)
-            .Select(k => start + (int)Math.Round(k * (double)(end - start) / (settings.HorizontalPerDay - 1), MidpointRounding.AwayFromZero))
-            .Select(minutes => TimeOnly.FromTimeSpan(TimeSpan.FromMinutes(minutes)))
-            .ToList();
-    }
+    /// <summary>Horários do dia dos vídeos horizontais.</summary>
+    public static IReadOnlyList<TimeOnly> HorizontalTimes(ScheduleSettings settings) => settings.HorizontalSlotTimes;
 
     /// <summary>
     /// Próxima janela dos vídeos horizontais estritamente depois de <paramref name="afterUtc"/> que não esteja
-    /// ocupada (<paramref name="taken"/>: outro vídeo muito perto desse horário). Vale todos os dias.
+    /// ocupada (<paramref name="taken"/>). Vale todos os dias.
     /// </summary>
-    public static DateTime? NextHorizontalSlotUtc(ScheduleSettings settings, DateTime afterUtc, Func<DateTime, bool>? taken = null)
+    public static DateTime? NextHorizontalSlotUtc(ScheduleSettings settings, DateTime afterUtc, Func<DateTime, bool>? taken = null) =>
+        NextFixedSlotUtc(settings, settings.HorizontalSlotTimes, afterUtc, honorDays: false, utc => taken is null || !taken(utc));
+
+    /// <summary>
+    /// Próximo horário da lista <paramref name="times"/> estritamente depois de <paramref name="afterUtc"/> que
+    /// <paramref name="isFree"/> aceita (sem outro vídeo colado e com vaga no dia).
+    /// <paramref name="honorDays"/>: pula os dias da semana desmarcados na agenda.
+    /// </summary>
+    public static DateTime? NextFixedSlotUtc(ScheduleSettings settings, IReadOnlyList<TimeOnly> times, DateTime afterUtc, bool honorDays, Func<DateTime, bool>? isFree = null)
     {
-        if (settings.Validate().Count > 0) return null;
+        if (settings.Validate().Count > 0 || times.Count == 0) return null;
 
         var zone = TimeZoneInfo.FindSystemTimeZoneById(settings.TimeZoneId);
         afterUtc = DateTime.SpecifyKind(afterUtc, DateTimeKind.Utc);
         var firstDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(afterUtc, zone));
-        var times = HorizontalTimes(settings);
 
         for (var day = 0; day < SearchDays; day++)
         {
             var date = firstDate.AddDays(day);
+            if (honorDays && !settings.IsDayEnabled(date.DayOfWeek)) continue;
+
             foreach (var time in times)
             {
                 var local = date.ToDateTime(time);
                 if (zone.IsInvalidTime(local)) local = local.AddHours(1);
                 var utc = TimeZoneInfo.ConvertTimeToUtc(local, zone);
-                if (utc > afterUtc && (taken is null || !taken(utc))) return utc;
+                if (utc > afterUtc && (isFree is null || isFree(utc))) return utc;
             }
         }
 

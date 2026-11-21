@@ -6,9 +6,9 @@ namespace Bast.Application.Import;
 public enum ImportOutcome
 {
     Imported,
-    /// <summary>Pasta incompleta ou legenda inválida; permanece em 01 - ENVIAR.</summary>
+    /// <summary>Pasta incompleta ou legenda inválida; permanece em 01 - ENVIAR VERTICAL.</summary>
     Incomplete,
-    /// <summary>Conteúdo já processado e sem autorização de reimportação; permanece em 01 - ENVIAR.</summary>
+    /// <summary>Conteúdo já processado e sem autorização de reimportação; permanece em 01 - ENVIAR VERTICAL.</summary>
     Duplicate,
     /// <summary>Vídeo corrompido; pasta encaminhada para 05 - ERROS.</summary>
     Rejected,
@@ -17,7 +17,7 @@ public enum ImportOutcome
 }
 
 /// <summary>
-/// Importa uma pasta estável de 01 - ENVIAR: valida, registra no banco e move para 02 - AGENDADOS.
+/// Importa uma pasta estável de 01 - ENVIAR VERTICAL: valida, registra no banco e move para 02 - AGENDADOS.
 /// O registro no banco acontece antes da movimentação, com o destino gravado, para que uma
 /// queda no meio do caminho seja concluída por <see cref="RecoverAsync"/> sem duplicar nada.
 /// </summary>
@@ -89,7 +89,7 @@ public sealed class ImportService(
         if (lane == VideoLane.YouTubeHorizontal && result.Analysis!.Width <= result.Analysis.Height)
         {
             await store.ReportIssueAsync(folderName, ImportIssueCode.NotHorizontal,
-                $"O vídeo tem {result.Analysis.Width}x{result.Analysis.Height} e não é horizontal. A pasta 01 - ENVIAR YOUTUBE é só para vídeos horizontais; vídeos verticais vão em 01 - ENVIAR.",
+                $"O vídeo tem {result.Analysis.Width}x{result.Analysis.Height} e não é horizontal. A pasta 01 - ENVIAR YOUTUBE é só para vídeos horizontais; vídeos verticais vão em 01 - ENVIAR VERTICAL.",
                 null, ct);
             return ImportOutcome.Incomplete;
         }

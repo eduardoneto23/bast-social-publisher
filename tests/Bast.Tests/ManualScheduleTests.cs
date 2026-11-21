@@ -289,13 +289,15 @@ public class ManualScheduleTests
     }
 
     [Fact]
-    public void New_installations_start_in_automatic_mode_with_three_per_day_for_manual()
+    public void New_installations_start_with_fixed_times_and_each_mode_has_its_daily_limit()
     {
         var settings = new ScheduleSettings();
-        Assert.Equal(ScheduleMode.Automatic, settings.Mode);
+        Assert.Equal(ScheduleMode.FixedTimes, settings.Mode);
+        Assert.Equal(3, settings.ChosenTimeMaxPerDay); // 10:00, 16:00, 18:00
         Assert.Equal(3, settings.ManualMaxPerDay);
-        Assert.Equal(10, settings.ChosenTimeMaxPerDay);
         settings.Mode = ScheduleMode.Manual;
         Assert.Equal(3, settings.ChosenTimeMaxPerDay);
+        settings.Mode = ScheduleMode.Automatic;
+        Assert.Equal(10, settings.ChosenTimeMaxPerDay);
     }
 }

@@ -7,7 +7,7 @@ public sealed class Workspace
 {
     private static readonly Dictionary<WorkspaceFolder, string> Names = new()
     {
-        [WorkspaceFolder.Inbox] = "01 - ENVIAR",
+        [WorkspaceFolder.Inbox] = "01 - ENVIAR VERTICAL",
         [WorkspaceFolder.YouTubeInbox] = "01 - ENVIAR YOUTUBE",
         [WorkspaceFolder.Scheduled] = "02 - AGENDADOS",
         [WorkspaceFolder.Publishing] = "03 - PUBLICANDO",
@@ -32,14 +32,51 @@ public sealed class Workspace
 
     public string PathOf(WorkspaceFolder folder) => Path.Combine(Root, Names[folder]);
 
+    /// <summary>Nome antigo da pasta de entrada dos verticais, renomeada para "01 - ENVIAR VERTICAL".</summary>
+    public const string LegacyInboxName = "01 - ENVIAR";
+
     public void EnsureCreated()
     {
+        MigrateLegacyInbox();
         foreach (var folder in Names.Keys)
         {
             Directory.CreateDirectory(PathOf(folder));
         }
 
         Directory.CreateDirectory(SystemPath);
+    }
+
+    /// <summary>
+    /// Renomeia a antiga "01 - ENVIAR" para "01 - ENVIAR VERTICAL". Se as duas existem, o conteúdo da antiga
+    /// passa para a nova (nome repetido ganha " (2)") e a antiga é removida quando fica vazia.
+    /// </summary>
+    private void MigrateLegacyInbox()
+    {
+        var legacy = Path.Combine(Root, LegacyInboxName);
+        if (!Directory.Exists(legacy)) return;
+
+        var inbox = PathOf(WorkspaceFolder.Inbox);
+        try
+        {
+            if (!Directory.Exists(inbox))
+            {
+                Directory.Move(legacy, inbox);
+                return;
+            }
+
+            foreach (var entry in new DirectoryInfo(legacy).EnumerateFileSystemInfos())
+            {
+                var destination = UniqueDestination(WorkspaceFolder.Inbox, entry.Name);
+                if (entry is DirectoryInfo directory) directory.MoveTo(destination);
+                else ((FileInfo)entry).MoveTo(destination);
+            }
+
+            if (!Directory.EnumerateFileSystemEntries(legacy).Any()) Directory.Delete(legacy);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Pasta aberta em outro programa: tenta de novo no próximo início; o que sobrou continua na antiga.
+        }
     }
 
     public string ToRelative(string absolutePath) => Path.GetRelativePath(Root, absolutePath);

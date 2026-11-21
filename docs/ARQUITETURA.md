@@ -38,7 +38,7 @@ A cada ciclo o motor: agenda vídeos sem horário, redistribui horários perdido
 
 ## Importação (Etapa 1)
 
-1. Pasta aparece em `01 - ENVIAR`; aguarda a janela de estabilidade.
+1. Pasta aparece em `01 - ENVIAR VERTICAL`; aguarda a janela de estabilidade.
 2. Inspeção: vídeo, legenda, thumbnail. Problema: registra em `import_issues` e mantém a pasta.
 3. Validação do vídeo. Inválido: move para `05 - ERROS`.
 4. SHA-256 e verificação de duplicidade.

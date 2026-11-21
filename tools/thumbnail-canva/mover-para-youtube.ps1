@@ -1,5 +1,6 @@
 ﻿<#
-  Move para "01 - ENVIAR YOUTUBE" as pastas de "00 - THUMB" que já estão completas:
+  Move para "01 - ENVIAR YOUTUBE" as pastas de "00 - THUMB" (com -Vertical: de "00 - THUMB VERTICAL" para
+  "01 - ENVIAR VERTICAL") que já estão completas:
   um vídeo, um .txt e a imagem da thumbnail, sem THUMB-ERRO.txt e paradas há pelo menos
   $StableSeconds segundos. A pasta inteira vai de uma vez (mesmo disco = movimento instantâneo),
   então o BAST nunca vê a pasta sem a thumbnail. Nome repetido no destino ganha " (2)", " (3)"...
@@ -9,14 +10,16 @@
 param(
     [string]$Root,
     [string]$Folder,
-    [int]$StableSeconds = 60
+    [int]$StableSeconds = 60,
+    [switch]$Vertical
 )
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'ferramentas.ps1')
 $Root = Resolve-Root $Root
-$source = Join-Path $Root '00 - THUMB'
-$target = Join-Path $Root '01 - ENVIAR YOUTUBE'
+$lane = if ($Folder) { Get-LaneOf $Root (Get-Item -LiteralPath $Folder).FullName } else { Get-Lane -Vertical:$Vertical }
+$source = Join-Path $Root $lane.Source
+$target = Join-Path $Root $lane.Target
 $videoExt = '.mp4', '.mov', '.m4v', '.webm'
 $imageExt = '.jpg', '.jpeg', '.png'
 New-Item -ItemType Directory -Force $target | Out-Null
@@ -25,7 +28,7 @@ $candidates = if ($Folder) { @(Get-Item -LiteralPath $Folder) } elseif (Test-Pat
 
 foreach ($dir in $candidates) {
     # Segurança: só pastas que estão diretamente dentro de 00 - THUMB.
-    if ((Split-Path $dir.FullName -Parent).TrimEnd('\') -ine $source.TrimEnd('\')) { throw "A pasta não está em 00 - THUMB: $($dir.FullName)" }
+    if ((Split-Path $dir.FullName -Parent).TrimEnd('\') -ine $source.TrimEnd('\')) { throw "A pasta não está em $($lane.Source): $($dir.FullName)" }
 
     $files = Get-ChildItem -LiteralPath $dir.FullName -File
     if ($files | Where-Object { $_.Name -ieq 'THUMB-ERRO.txt' }) { continue }

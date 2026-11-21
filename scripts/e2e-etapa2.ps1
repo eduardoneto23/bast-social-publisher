@@ -72,7 +72,7 @@ try {
     New-VideoFolder 'Video 2' 402 "TITULO DOIS`r`n`r`n$special`r`n#Bast"
     New-VideoFolder 'Video 001' 401 "TITULO UM`r`n`r`n$special`r`n#Bast"
     New-VideoFolder 'Video 30 longo' 430 ("TITULO LONGO`r`n" + ('a' * 600))
-    Get-ChildItem $stage -Directory | Move-Item -Destination (Join-Path $root '01 - ENVIAR')
+    Get-ChildItem $stage -Directory | Move-Item -Destination (Join-Path $root '01 - ENVIAR VERTICAL')
 
     Check 'quatro videos importados' (Wait-Until { (Api '/api/videos').Count -eq 4 } 40)
     Start-Sleep -Seconds 6

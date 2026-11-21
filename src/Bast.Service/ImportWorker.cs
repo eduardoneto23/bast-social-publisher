@@ -6,7 +6,7 @@ using Bast.Infrastructure;
 namespace Bast.Service;
 
 /// <summary>
-/// Monitora 01 - ENVIAR e 01 - ENVIAR YOUTUBE continuamente. O FileSystemWatcher apenas antecipa a varredura;
+/// Monitora 01 - ENVIAR VERTICAL e 01 - ENVIAR YOUTUBE continuamente. O FileSystemWatcher apenas antecipa a varredura;
 /// a varredura periódica garante que nada se perca se um evento do sistema for descartado.
 /// </summary>
 public sealed class ImportWorker(

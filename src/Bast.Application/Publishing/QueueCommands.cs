@@ -17,9 +17,8 @@ public sealed record ScheduleSettingsInput(
     int MaxAttempts,
     ScheduleMode? Mode = null,
     int? ManualMaxPerDay = null,
-    string? HorizontalStartTime = null,
-    string? HorizontalEndTime = null,
-    int? HorizontalPerDay = null);
+    string? VerticalSlots = null,
+    string? HorizontalSlots = null);
 
 /// <summary>Controles do usuário sobre a fila: configurar, pausar, retomar e cancelar.</summary>
 public sealed class QueueCommands(IDbContextFactory<BastDbContext> factory, SchedulingService scheduling, TimeProvider time)
@@ -50,17 +49,14 @@ public sealed class QueueCommands(IDbContextFactory<BastDbContext> factory, Sche
         // Opcionais: quem não informa (scripts antigos) mantém o que está salvo.
         if (input.Mode is { } mode && Enum.IsDefined(mode)) settings.Mode = mode;
         if (input.ManualMaxPerDay is { } manualMax) settings.ManualMaxPerDay = manualMax;
-        if (input.HorizontalPerDay is { } perDay) settings.HorizontalPerDay = perDay;
-        if (input.HorizontalStartTime is not null || input.HorizontalEndTime is not null)
+        // Listas de horários: guardadas já normalizadas ("10:00,16:00,18:00"); texto inválido é recusado pela validação.
+        if (input.VerticalSlots is not null)
         {
-            if (!TimeOnly.TryParse(input.HorizontalStartTime ?? settings.HorizontalStartTime.ToString("HH:mm"), out var hStart)
-                || !TimeOnly.TryParse(input.HorizontalEndTime ?? settings.HorizontalEndTime.ToString("HH:mm"), out var hEnd))
-            {
-                return ["Horários dos vídeos horizontais devem estar no formato HH:mm."];
-            }
-
-            settings.HorizontalStartTime = hStart;
-            settings.HorizontalEndTime = hEnd;
+            settings.VerticalSlots = TimeList.TryParse(input.VerticalSlots, out var vertical) ? TimeList.Format(vertical) : input.VerticalSlots;
+        }
+        if (input.HorizontalSlots is not null)
+        {
+            settings.HorizontalSlots = TimeList.TryParse(input.HorizontalSlots, out var horizontal) ? TimeList.Format(horizontal) : input.HorizontalSlots;
         }
         settings.UpdatedAtUtc = Now;
 

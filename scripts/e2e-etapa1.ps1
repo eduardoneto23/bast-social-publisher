@@ -1,5 +1,5 @@
 ﻿# Teste de ponta a ponta da Etapa 1: sobe o serviço real em uma pasta temporária,
-# coloca pastas em 01 - ENVIAR e confere o resultado pela API e pelo disco.
+# coloca pastas em 01 - ENVIAR VERTICAL e confere o resultado pela API e pelo disco.
 # Uso: pwsh scripts/e2e-etapa1.ps1
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
@@ -41,7 +41,7 @@ New-Item -ItemType Directory -Force $root | Out-Null
 dotnet build (Join-Path $repo 'src\Bast.Service') -v q --nologo | Out-Null
 $service = Start-Bast
 try {
-    $inbox = Join-Path $root '01 - ENVIAR'
+    $inbox = Join-Path $root '01 - ENVIAR VERTICAL'
     $health = Invoke-RestMethod "$url/api/health"
     Check 'health ok (banco, ffprobe, ffmpeg)' ($health.status -eq 'ok')
     Check 'estrutura de pastas criada' ((Get-ChildItem $root -Directory).Count -eq 7)

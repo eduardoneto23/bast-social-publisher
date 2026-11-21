@@ -262,13 +262,8 @@ namespace Bast.Infrastructure.Persistence.Migrations
                     b.Property<TimeOnly>("EndTime")
                         .HasColumnType("TEXT");
 
-                    b.Property<TimeOnly>("HorizontalEndTime")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("HorizontalPerDay")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<TimeOnly>("HorizontalStartTime")
+                    b.Property<string>("HorizontalSlots")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<int>("IntervalMinutes")
@@ -310,6 +305,10 @@ namespace Bast.Infrastructure.Persistence.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("VerticalSlots")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.HasKey("Id");

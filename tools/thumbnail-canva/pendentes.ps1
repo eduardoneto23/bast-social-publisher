@@ -1,5 +1,5 @@
 ﻿<#
-  Lista as pastas de "00 - THUMB" que ainda precisam de algo antes de ir para o YouTube:
+  Lista as pastas de "00 - THUMB" (ou, com -Vertical, de "00 - THUMB VERTICAL") que ainda precisam de algo antes de ir para o YouTube:
   um vídeo sem thumbnail, ou sem .txt (temThumbnail = true: o usuário já pôs a imagem, falta só a legenda), nada alterado nos últimos 60 segundos (cópia terminada).
   Se a pasta não tem .txt, "legenda" vem nula e "tituloTrabalho" traz o título que o usuário deu
   (nome do arquivo de vídeo ou, se for genérico como "video", o nome da pasta): a legenda deve ser criada.
@@ -9,13 +9,14 @@
 #>
 param(
     [string]$Root,
-    [int]$StableSeconds = 60
+    [int]$StableSeconds = 60,
+    [switch]$Vertical
 )
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'ferramentas.ps1')
 $Root = Resolve-Root $Root
-$inbox = Join-Path $Root '00 - THUMB'
+$inbox = Join-Path $Root (Get-Lane -Vertical:$Vertical).Source
 $videoExt = '.mp4', '.mov', '.m4v', '.webm'
 $imageExt = '.jpg', '.jpeg', '.png'
 $generic = '^(video|vídeo|final|export|render|untitled|sem t[ií]tulo|novo)[\s_\-]*\d*$'

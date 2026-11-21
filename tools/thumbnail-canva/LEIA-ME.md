@@ -19,6 +19,20 @@ Automação **fora do serviço BAST**: uma tarefa agendada do Claude (app Claude
 
 O modelo original nunca é alterado: cada vídeo ganha uma cópia chamada "BAST thumb - <nome da pasta>" no Canva, que dá para ajustar à mão depois.
 
+## Vídeos verticais (Reels e Shorts)
+
+A mesma automação vale para os verticais, numa fila separada:
+
+```
+00 - THUMB VERTICAL/    você coloca aqui: vídeo (+ legenda.txt, se quiser)
+   (legenda e capa criadas)
+01 - ENVIAR VERTICAL/   a pasta chega aqui com legenda.txt e thumbnail.jpg e o BAST agenda nos horários dos verticais
+```
+
+- **Capa:** 1080x1920 em JPG, montada como colagem na cópia do "BAST - Modelo Capa Vertical" (`recorte.ps1 -Fundo -Vertical` para o fundo).
+- **Onde a capa aparece:** YouTube Shorts (thumbnail), Instagram (capa do Reel, enviada por um link temporário) e Facebook (thumbnail preferida do Reel). O Threads não tem capa.
+- **Legenda:** as mesmas regras, mas com no máximo 500 caracteres no total, porque também vai para o Threads.
+- Os scripts aceitam `-Vertical` (`pendentes.ps1`, `mover-para-youtube.ps1`); `salvar-legenda.ps1` e `salvar-thumb.ps1` descobrem a fila pela pasta.
 ## Legenda automática
 
 Se a pasta tiver só o vídeo, o nome do arquivo vira o título de trabalho (ex.: `gta vi o inicio.mp4`; se o nome for genérico, como `video.mp4`, vale o nome da pasta) e a tarefa cria o `legenda.txt`:

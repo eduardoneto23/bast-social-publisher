@@ -47,6 +47,6 @@ public interface IImportStore
     /// <summary>Encerra os problemas em aberto de uma pasta (importada com sucesso).</summary>
     Task ResolveIssuesAsync(string folderName, CancellationToken ct);
 
-    /// <summary>Encerra problemas em aberto de pastas que não estão mais em 01 - ENVIAR e não foram movidas pelo sistema.</summary>
+    /// <summary>Encerra problemas em aberto de pastas que não estão mais em 01 - ENVIAR VERTICAL e não foram movidas pelo sistema.</summary>
     Task ResolveIssuesForAbsentFoldersAsync(IReadOnlyCollection<string> presentFolderNames, CancellationToken ct);
 }

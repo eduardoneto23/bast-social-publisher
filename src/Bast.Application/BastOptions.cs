@@ -4,13 +4,13 @@ public sealed class BastOptions
 {
     public const string SectionName = "Bast";
 
-    /// <summary>Pasta principal (contém 01 - ENVIAR ... SYSTEM). Obrigatória.</summary>
+    /// <summary>Pasta principal (contém 01 - ENVIAR VERTICAL ... SYSTEM). Obrigatória.</summary>
     public string RootFolder { get; set; } = "";
 
     /// <summary>Tempo sem alterações para considerar que a cópia de uma pasta terminou.</summary>
     public int StabilitySeconds { get; set; } = 10;
 
-    /// <summary>Intervalo da varredura periódica de 01 - ENVIAR (o monitor de eventos apenas antecipa a varredura).</summary>
+    /// <summary>Intervalo da varredura periódica de 01 - ENVIAR VERTICAL (o monitor de eventos apenas antecipa a varredura).</summary>
     public int ScanIntervalSeconds { get; set; } = 15;
 
     /// <summary>Caminho completo do ffprobe. Vazio = procurar no PATH.</summary>

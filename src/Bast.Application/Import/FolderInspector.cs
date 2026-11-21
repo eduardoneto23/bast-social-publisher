@@ -12,7 +12,7 @@ public sealed record FolderInspection(
     bool ReimportRequested,
     IReadOnlyList<ImportProblem> Problems);
 
-/// <summary>Identifica vídeo, legenda e thumbnail de uma pasta de 01 - ENVIAR, sem alterar nada.</summary>
+/// <summary>Identifica vídeo, legenda e thumbnail de uma pasta de 01 - ENVIAR VERTICAL, sem alterar nada.</summary>
 public sealed class FolderInspector(BastOptions options)
 {
     /// <summary>Arquivo vazio que o usuário cria para autorizar a reimportação de um conteúdo já processado.</summary>
@@ -64,7 +64,9 @@ public sealed class FolderInspector(BastOptions options)
             }
         }
 
-        var thumbnails = files.Where(f => ThumbnailExtensions.Contains(f.Extension, StringComparer.OrdinalIgnoreCase)).ToList();
+        // "referencia.png" só indica o momento do vídeo para criar a thumbnail; nunca é a thumbnail.
+        var thumbnails = files.Where(f => ThumbnailExtensions.Contains(f.Extension, StringComparer.OrdinalIgnoreCase)
+                                          && !IsReference(Path.GetFileNameWithoutExtension(f.Name))).ToList();
         var thumbnail = thumbnails.FirstOrDefault(f => Path.GetFileNameWithoutExtension(f.Name).Equals("thumbnail", StringComparison.OrdinalIgnoreCase))
             ?? (thumbnails.Count == 1 ? thumbnails[0] : null);
 
@@ -76,6 +78,9 @@ public sealed class FolderInspector(BastOptions options)
             reimport,
             problems);
     }
+
+    private static bool IsReference(string name) =>
+        name.Equals("referencia", StringComparison.OrdinalIgnoreCase) || name.Equals("referência", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsNamed(FileInfo file, string name) => file.Name.Equals(name, StringComparison.OrdinalIgnoreCase);
 }

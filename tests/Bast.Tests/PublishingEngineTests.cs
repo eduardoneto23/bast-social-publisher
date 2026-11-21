@@ -40,12 +40,20 @@ public sealed class TestRegistry(IEnumerable<IPlatformConnector> connectors) : I
 
 public sealed class EngineHarness : IDisposable
 {
-    public EngineHarness(params Platform[] connected)
+    /// <summary>Agenda no modo de intervalo (10:00 + 4 em 4 h), a base da maioria dos testes do motor.</summary>
+    public EngineHarness(params Platform[] connected) : this(ScheduleMode.Automatic, connected)
+    {
+    }
+
+    public EngineHarness(ScheduleMode mode, params Platform[] connected)
     {
         if (connected.Length == 0) connected = [Platform.Instagram, Platform.Facebook, Platform.Threads, Platform.YouTube];
         Connectors = connected.ToDictionary(p => p, p => new ScriptedConnector(p));
         Engine = NewEngine();
-        // 14/11/2026 12:00 UTC = 09:00 em São Paulo; horários padrão: 10:00, 14:00, 18:00, 22:00.
+        // 14/11/2026 12:00 UTC = 09:00 em São Paulo; horários do intervalo: 10:00, 14:00, 18:00, 22:00.
+        using var db = Env.DbFactory.CreateDbContext();
+        db.ScheduleSettings.Add(new ScheduleSettings { Mode = mode, UpdatedAtUtc = Env.Time.GetUtcNow().UtcDateTime });
+        db.SaveChanges();
     }
 
     public TestEnvironment Env { get; } = new();

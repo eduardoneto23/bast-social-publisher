@@ -70,10 +70,17 @@ public sealed class SchedulingService(
         if (waiting.Count == 0) return 0;
 
         var now = Now;
-        var scheduled = await ScheduleHorizontalAsync(db, settings, waiting.Where(v => v.Lane == VideoLane.YouTubeHorizontal).ToList(), now, ct);
+        var bookings = await BookingsAsync(db, ct);
+        var scheduled = await ScheduleFixedAsync(db, settings, VideoLane.YouTubeHorizontal,
+            waiting.Where(v => v.Lane == VideoLane.YouTubeHorizontal).ToList(), bookings, now, ct);
 
         var standard = waiting.Where(v => v.Lane == VideoLane.Standard).ToList();
         if (standard.Count == 0) return scheduled;
+
+        if (settings.Mode == ScheduleMode.FixedTimes)
+        {
+            return scheduled + await ScheduleFixedAsync(db, settings, VideoLane.Standard, standard, bookings, now, ct);
+        }
 
         if (settings.Mode == ScheduleMode.Manual)
         {
@@ -119,51 +126,66 @@ public sealed class SchedulingService(
     }
 
     /// <summary>
-    /// Cada vídeo horizontal recebe a janela seguinte à do último horizontal já reservado (ou a próxima a partir
-    /// de agora). Janela colada no horário de outro vídeo, de qualquer fila, é pulada: dois vídeos nunca saem juntos.
+    /// Horários fixos (horizontais sempre; verticais no modo <see cref="ScheduleMode.FixedTimes"/>): cada vídeo, na
+    /// ordem, pega o primeiro horário da lista a partir de agora que esteja livre. Livre = nenhum vídeo de
+    /// qualquer fila colado nesse horário e o dia ainda com vaga nesta fila (um vídeo por horário da lista,
+    /// contando os já publicados no dia). Dia cheio: vai para o dia seguinte.
     /// </summary>
-    private async Task<int> ScheduleHorizontalAsync(BastDbContext db, ScheduleSettings settings, List<Video> videos, DateTime now, CancellationToken ct)
+    private async Task<int> ScheduleFixedAsync(BastDbContext db, ScheduleSettings settings, VideoLane lane, List<Video> videos,
+        List<Booking> bookings, DateTime now, CancellationToken ct)
     {
         if (videos.Count == 0) return 0;
-        var platforms = PlatformsFor(VideoLane.YouTubeHorizontal, settings);
+        var platforms = PlatformsFor(lane, settings);
         if (platforms.Count == 0) return 0;
 
-        var lastReserved = await db.Videos
-            .Where(v => v.State == VideoState.Ready && v.ScheduledAtUtc != null && v.Lane == VideoLane.YouTubeHorizontal)
-            .MaxAsync(v => v.ScheduledAtUtc, ct);
-        var cursor = lastReserved is { } last && last > now ? last : now;
-        var busy = await BusyTimesAsync(db, ct);
         var scheduled = 0;
-
         foreach (var video in videos)
         {
-            var slot = SlotCalculator.NextHorizontalSlotUtc(settings, cursor, utc => busy.Any(b => (b - utc).Duration() < MinimumGap));
+            var slot = NextFreeSlot(settings, lane, now, bookings);
             if (slot is null)
             {
-                logger.LogWarning("Nenhuma janela disponível para os vídeos horizontais; vídeos aguardando.");
+                logger.LogWarning("Nenhum horário livre para os vídeos {Lane}; vídeos aguardando.", lane == VideoLane.YouTubeHorizontal ? "horizontais" : "verticais");
                 break;
             }
 
             if (Assign(db, video, slot.Value, platforms, now))
             {
-                cursor = slot.Value;
-                busy.Add(slot.Value);
+                bookings.Add(new Booking(video.Id, lane, slot.Value));
                 scheduled++;
-                logger.LogInformation("{Folder} (YouTube horizontal) agendado para {Slot:yyyy-MM-dd HH:mm} UTC.", video.FolderName, slot);
+                logger.LogInformation("{Folder} agendado para {Slot:yyyy-MM-dd HH:mm} UTC ({Lane}).", video.FolderName, slot, lane);
             }
 
+            // Uma transação por vídeo: horário e publicações são gravados juntos.
             await db.SaveChangesAsync(ct);
         }
 
         return scheduled;
     }
 
-    /// <summary>Horários já ocupados por vídeos que ainda vão sair.</summary>
-    private static async Task<List<DateTime>> BusyTimesAsync(BastDbContext db, CancellationToken ct) =>
+    /// <summary>Horário marcado de um vídeo que ocupa a agenda (aguardando, publicando ou já publicado).</summary>
+    private sealed record Booking(Guid VideoId, VideoLane Lane, DateTime AtUtc);
+
+    private static async Task<List<Booking>> BookingsAsync(BastDbContext db, CancellationToken ct) =>
         await db.Videos
-            .Where(v => v.ScheduledAtUtc != null && (v.State == VideoState.Ready || v.State == VideoState.Publishing))
-            .Select(v => v.ScheduledAtUtc!.Value)
+            .Where(v => v.ScheduledAtUtc != null
+                        && (v.State == VideoState.Ready || v.State == VideoState.Publishing || v.State == VideoState.Published))
+            .Select(v => new Booking(v.Id, v.Lane, v.ScheduledAtUtc!.Value))
             .ToListAsync(ct);
+
+    /// <summary>Horários do dia da fila: horizontais sempre na lista deles; verticais na lista de horários fixos.</summary>
+    private static (IReadOnlyList<TimeOnly> Times, bool HonorDays) FixedTimesOf(ScheduleSettings settings, VideoLane lane) =>
+        lane == VideoLane.YouTubeHorizontal ? (settings.HorizontalSlotTimes, false) : (settings.VerticalSlotTimes, true);
+
+    private static DateTime? NextFreeSlot(ScheduleSettings settings, VideoLane lane, DateTime afterUtc, List<Booking> bookings)
+    {
+        var (times, honorDays) = FixedTimesOf(settings, lane);
+        var zone = TimeZoneInfo.FindSystemTimeZoneById(settings.TimeZoneId);
+        DateOnly DayOf(DateTime utc) => DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(utc, zone));
+
+        return SlotCalculator.NextFixedSlotUtc(settings, times, afterUtc, honorDays, utc =>
+            !bookings.Any(b => (b.AtUtc - utc).Duration() < MinimumGap)
+            && bookings.Count(b => b.Lane == lane && DayOf(b.AtUtc) == DayOf(utc)) < times.Count);
+    }
 
     /// <summary>
     /// Marca (ou muda) o horário de um vídeo, escolhido pelo usuário no fuso da agenda. Vale nos dois
@@ -301,6 +323,10 @@ public sealed class SchedulingService(
                     changed++;
                 }
             }
+            else if (settings.Mode == ScheduleMode.FixedTimes)
+            {
+                changed += await ReflowFixedAsync(db, settings, VideoLane.Standard, queue, keep, now, ct);
+            }
             else
             {
                 var cursor = now;
@@ -320,23 +346,44 @@ public sealed class SchedulingService(
 
         if (missed.Any(v => v.Lane == VideoLane.YouTubeHorizontal))
         {
-            var horizontal = queue.Where(v => v.Lane == VideoLane.YouTubeHorizontal && v != keep).ToList();
-            var busy = queue.Where(v => !horizontal.Contains(v) && v.ScheduledAtUtc is not null).Select(v => v.ScheduledAtUtc!.Value).ToList();
-            var cursor = now;
-            foreach (var video in horizontal)
-            {
-                var slot = SlotCalculator.NextHorizontalSlotUtc(settings, cursor, utc => busy.Any(b => (b - utc).Duration() < MinimumGap));
-                if (slot is null) break;
-
-                cursor = slot.Value;
-                busy.Add(slot.Value);
-                Move(video, slot, now);
-                changed++;
-            }
+            changed += await ReflowFixedAsync(db, settings, VideoLane.YouTubeHorizontal, queue, keep, now, ct);
         }
 
         await db.SaveChangesAsync(ct);
         logger.LogWarning("Horário perdido detectado: {Count} vídeo(s) remarcado(s) ou devolvido(s) para escolha de horário.", changed);
+        return changed;
+    }
+
+    /// <summary>
+    /// Redistribui, na mesma ordem, os vídeos da fila que ainda não começaram pelos próximos horários fixos livres.
+    /// Com <see cref="MissedSlotPolicy.NextCycle"/>, começa no dia seguinte.
+    /// </summary>
+    private async Task<int> ReflowFixedAsync(BastDbContext db, ScheduleSettings settings, VideoLane lane, List<Video> queue, Video? keep,
+        DateTime now, CancellationToken ct)
+    {
+        var moving = queue.Where(v => v.Lane == lane && v != keep).ToList();
+        var ids = moving.Select(v => v.Id).ToHashSet();
+        var bookings = (await BookingsAsync(db, ct)).Where(b => !ids.Contains(b.VideoId)).ToList();
+
+        var after = now;
+        if (settings.MissedPolicy == MissedSlotPolicy.NextCycle)
+        {
+            var zone = TimeZoneInfo.FindSystemTimeZoneById(settings.TimeZoneId);
+            var tomorrow = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(now, zone)).AddDays(1);
+            after = TimeZoneInfo.ConvertTimeToUtc(SafeLocal(tomorrow.ToDateTime(TimeOnly.MinValue), zone), zone).AddTicks(-1);
+        }
+
+        var changed = 0;
+        foreach (var video in moving)
+        {
+            var slot = NextFreeSlot(settings, lane, after, bookings);
+            if (slot is null) break;
+
+            bookings.Add(new Booking(video.Id, lane, slot.Value));
+            Move(video, slot, now);
+            changed++;
+        }
+
         return changed;
     }
 
