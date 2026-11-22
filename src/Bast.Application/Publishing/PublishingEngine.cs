@@ -71,6 +71,9 @@ public sealed class PublishingEngine(
             await scheduling.ReflowMissedAsync(ct);
         }
 
+        // Rede desmarcada na Agenda não recebe mais nada, nem o que já estava agendado.
+        await CancelDisabledPlatformsAsync(settings, ct);
+
         // Consultas não publicam nada, então continuam mesmo com a fila pausada.
         await ConfirmPendingAsync(settings, ct);
 
@@ -79,8 +82,38 @@ public sealed class PublishingEngine(
             await PublishDueAsync(settings, ct);
         }
 
-        await AggregateAsync(ct);
+        await AggregateAsync(settings, ct);
         await folders.SyncAsync(ct);
+    }
+
+    /// <summary>
+    /// Cancela as publicações que ainda não começaram (agendadas ou aguardando nova tentativa) das redes
+    /// desmarcadas na Agenda. Vale para os verticais; os horizontais vão sempre só para o YouTube.
+    /// Envios já em andamento não são mexidos.
+    /// </summary>
+    private async Task CancelDisabledPlatformsAsync(ScheduleSettings settings, CancellationToken ct)
+    {
+        var disabled = Enum.GetValues<Platform>().Where(p => !settings.IsPlatformEnabled(p)).ToList();
+        if (disabled.Count == 0) return;
+
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var stale = await db.Publications.Include(p => p.Video)
+            .Where(p => disabled.Contains(p.Platform)
+                        && (p.State == PublicationState.Scheduled || p.State == PublicationState.RetryWait)
+                        && p.Video!.Lane == VideoLane.Standard)
+            .ToListAsync(ct);
+        if (stale.Count == 0) return;
+
+        var now = Now;
+        foreach (var publication in stale)
+        {
+            publication.LastError = "Cancelada: a rede foi desmarcada na Agenda.";
+            publication.NextRetryAtUtc = null;
+            publication.TransitionTo(PublicationState.Cancelled, now);
+            logger.LogInformation("{Folder}: publicação em {Platform} cancelada (rede desmarcada na Agenda).", publication.Video!.FolderName, publication.Platform);
+        }
+
+        await db.SaveChangesAsync(ct);
     }
 
     private async Task PublishDueAsync(ScheduleSettings settings, CancellationToken ct)
@@ -305,7 +338,7 @@ public sealed class PublishingEngine(
     }
 
     /// <summary>Atualiza a situação do vídeo quando todas as suas publicações chegaram a um estado final.</summary>
-    private async Task AggregateAsync(CancellationToken ct)
+    private async Task AggregateAsync(ScheduleSettings settings, CancellationToken ct)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
         var videos = await db.Videos.Include(v => v.Publications)
@@ -319,6 +352,11 @@ public sealed class PublishingEngine(
                 : video.Publications.Any(p => p.State == PublicationState.Published) ? VideoState.Published
                 : VideoState.Archived;
             video.UpdatedAtUtc = now;
+            // Vertical publicado no automático: espera o envio manual nas outras redes (pasta PENDENTE MANUAL).
+            if (video.State == VideoState.Published && video.Lane == VideoLane.Standard && settings.ManualPosting)
+            {
+                video.ManualPendingSinceUtc ??= now;
+            }
             if (NotificationOutbox.VideoFinished(video) is { } summary)
             {
                 await NotificationOutbox.AddAsync(db, NotificationKind.VideoFinished, $"video:{video.Id}:finished", summary, now, ct);

@@ -96,6 +96,12 @@ public sealed class ScheduleSettings
     /// <summary>Vídeos horizontais por dia: um por horário.</summary>
     public int HorizontalPerDay => HorizontalSlotTimes.Count;
 
+    /// <summary>
+    /// Verticais publicados no automático vão para PENDENTE MANUAL até o usuário confirmar no painel que
+    /// postou à mão nas redes que não estão no automático.
+    /// </summary>
+    public bool ManualPosting { get; set; }
+
     public bool Paused { get; set; }
     public DateTime UpdatedAtUtc { get; set; }
 

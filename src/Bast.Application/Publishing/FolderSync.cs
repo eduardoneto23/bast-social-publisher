@@ -22,6 +22,9 @@ public sealed class FolderSync(IDbContextFactory<BastDbContext> factory, Workspa
         _ => null,
     };
 
+    /// <summary>Pasta do vídeo: publicado e aguardando o envio manual fica em PENDENTE MANUAL.</summary>
+    public static WorkspaceFolder? FolderFor(Video video) => video.AwaitsManual ? WorkspaceFolder.ManualPending : FolderFor(video.State);
+
     public async Task SyncAsync(CancellationToken ct)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
@@ -30,7 +33,10 @@ public sealed class FolderSync(IDbContextFactory<BastDbContext> factory, Workspa
             .Where(v => v.PendingMovePath != null
                         || (v.State == VideoState.Ready && v.CurrentFolder != WorkspaceFolder.Scheduled)
                         || (v.State == VideoState.Publishing && v.CurrentFolder != WorkspaceFolder.Publishing)
-                        || (v.State == VideoState.Published && v.CurrentFolder != WorkspaceFolder.Sent)
+                        || (v.State == VideoState.Published && v.ManualPendingSinceUtc != null && v.ManualDoneAtUtc == null
+                            && v.CurrentFolder != WorkspaceFolder.ManualPending)
+                        || (v.State == VideoState.Published && (v.ManualPendingSinceUtc == null || v.ManualDoneAtUtc != null)
+                            && v.CurrentFolder != WorkspaceFolder.Sent)
                         || (v.State == VideoState.Error && v.CurrentFolder != WorkspaceFolder.Errors)
                         || (v.State == VideoState.Archived && v.CurrentFolder != WorkspaceFolder.Archived))
             .ToListAsync(ct);
@@ -61,7 +67,7 @@ public sealed class FolderSync(IDbContextFactory<BastDbContext> factory, Workspa
             }
         }
 
-        var target = FolderFor(video.State);
+        var target = FolderFor(video);
         if (target is null || target == video.CurrentFolder)
         {
             await db.SaveChangesAsync(ct);

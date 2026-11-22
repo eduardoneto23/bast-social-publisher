@@ -50,6 +50,8 @@ public enum WorkspaceFolder
     Archived,
     /// <summary>Entrada dos vídeos horizontais que vão só para o YouTube.</summary>
     YouTubeInbox,
+    /// <summary>Vertical já publicado no automático, aguardando o usuário postar à mão nas outras redes.</summary>
+    ManualPending,
 }
 
 /// <summary>Fila do vídeo: define a pasta de entrada, as redes e a agenda.</summary>

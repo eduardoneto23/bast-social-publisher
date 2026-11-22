@@ -113,15 +113,18 @@ Em modo de teste do Google a autorização expira a cada 7 dias. Para evitar iss
 Dentro de `RootFolder` o programa cria esta estrutura:
 
 ```
-01 - ENVIAR VERTICAL/       coloque aqui as pastas dos vídeos verticais (todas as redes)
-01 - ENVIAR YOUTUBE/  vídeos horizontais, só para o YouTube (ver abaixo)
-02 - AGENDADOS/    validados, aguardando o horário
-03 - PUBLICANDO/   em envio
-04 - ENVIADOS/     publicados
-05 - ERROS/        com falha
-06 - ARQUIVADOS/   cancelados
-SYSTEM/            banco de dados e credenciais criptografadas
+01 - ENVIAR VERTICAL/    coloque aqui as pastas dos vídeos verticais (redes marcadas na Agenda)
+01 - ENVIAR YOUTUBE/     vídeos horizontais, só para o YouTube (ver abaixo)
+02 - AGENDADOS/          validados, aguardando o horário
+03 - PUBLICANDO/         em envio
+04 - ENVIADOS/           publicados
+05 - ERROS/              com falha
+06 - ARQUIVADOS/         cancelados
+07 - PENDENTE MANUAL/    verticais já publicados no automático, esperando você postar à mão nas outras redes
+SYSTEM/                  banco de dados e credenciais criptografadas
 ```
+
+**Envio manual:** com a opção "Envio manual" ligada na Agenda, o vertical que terminou o envio automático vai para `07 - PENDENTE MANUAL`. Ele aparece no card **Pendente manual** da Visão geral; depois de postar à mão nas redes que não estão no automático, clique em **Já postei** e a pasta vai para `04 - ENVIADOS`. Os horizontais vão direto para `04 - ENVIADOS`.
 
 Monte a pasta do vídeo fora de `01 - ENVIAR VERTICAL` e mova para lá quando estiver pronta:
 
@@ -217,6 +220,8 @@ Invoke-RestMethod http://127.0.0.1:5080/api/settings/schedule -Method Put -Conte
 
 - `missedPolicy`: o que fazer se o computador estava desligado no horário. `NextAllowedSlot` publica no próximo horário; `NextCycle` espera o dia seguinte. Vídeos atrasados nunca são publicados todos de uma vez.
 - Os vídeos já agendados mantêm o horário; a nova agenda vale para os próximos.
+- Rede desmarcada em `platforms` não recebe mais nada: as publicações dela que ainda não começaram são canceladas no ciclo seguinte (as que já estão em envio terminam).
+- `manualPosting` (opcional): `true` deixa os verticais publicados em `07 - PENDENTE MANUAL` até a confirmação no painel.
 
 ## Controles
 

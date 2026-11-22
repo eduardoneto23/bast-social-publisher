@@ -144,6 +144,9 @@ app.MapGet("/api/queue", async (IDbContextFactory<BastDbContext> factory, Cancel
             v.Width,
             v.Height,
             hasThumbnail = v.ThumbnailFileName != null,
+            awaitingManual = v.AwaitsManual,
+            v.ManualPendingSinceUtc,
+            v.ManualDoneAtUtc,
             youTubeTitle = CaptionRules.YouTubeTitle(v.CaptionText),
             publications = v.Publications.OrderBy(p => p.Platform).Select(p => new
             {
@@ -193,6 +196,18 @@ app.MapPost("/api/videos/{id:guid}/cancel", async (Guid id, QueueCommands comman
     return result is null
         ? Results.NotFound()
         : Results.Ok(new { cancelled = result.Value.Cancelled, notCancellable = result.Value.NotCancellable });
+});
+
+// O usuário postou à mão nas outras redes: a pasta sai de PENDENTE MANUAL e vai para ENVIADOS.
+app.MapPost("/api/videos/{id:guid}/manual-done", async (Guid id, QueueCommands commands, CancellationToken ct) =>
+{
+    var done = await commands.ConfirmManualAsync(id, ct);
+    return done switch
+    {
+        null => Results.NotFound(),
+        true => Results.Ok(new { message = "Envio manual confirmado. A pasta vai para ENVIADOS." }),
+        false => Results.BadRequest(new { problems = new[] { "Este vídeo não está aguardando o envio manual." } }),
+    };
 });
 
 app.MapPost("/api/videos/{id:guid}/publish-now", async (Guid id, QueueCommands commands, CancellationToken ct) =>
@@ -455,6 +470,7 @@ static object ToResponse(ScheduleSettings s) => new
     s.ChosenTimeMaxPerDay,
     horizontalSlots = s.HorizontalSlotTimes.Select(t => t.ToString("HH:mm")),
     s.HorizontalPerDay,
+    s.ManualPosting,
     s.Paused,
     s.UpdatedAtUtc,
 };

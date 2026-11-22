@@ -18,7 +18,8 @@ public sealed record ScheduleSettingsInput(
     ScheduleMode? Mode = null,
     int? ManualMaxPerDay = null,
     string? VerticalSlots = null,
-    string? HorizontalSlots = null);
+    string? HorizontalSlots = null,
+    bool? ManualPosting = null);
 
 /// <summary>Controles do usuário sobre a fila: configurar, pausar, retomar e cancelar.</summary>
 public sealed class QueueCommands(IDbContextFactory<BastDbContext> factory, SchedulingService scheduling, TimeProvider time)
@@ -58,6 +59,7 @@ public sealed class QueueCommands(IDbContextFactory<BastDbContext> factory, Sche
         {
             settings.HorizontalSlots = TimeList.TryParse(input.HorizontalSlots, out var horizontal) ? TimeList.Format(horizontal) : input.HorizontalSlots;
         }
+        if (input.ManualPosting is { } manualPosting) settings.ManualPosting = manualPosting;
         settings.UpdatedAtUtc = Now;
 
         var problems = settings.Validate();
@@ -66,6 +68,24 @@ public sealed class QueueCommands(IDbContextFactory<BastDbContext> factory, Sche
         // Os vídeos já agendados mantêm seus horários; as novas regras valem para os próximos.
         await db.SaveChangesAsync(ct);
         return [];
+    }
+
+    /// <summary>
+    /// O usuário confirmou no painel que postou o vídeo à mão nas outras redes: a pasta sai de
+    /// PENDENTE MANUAL e vai para ENVIADOS no próximo ciclo.
+    /// </summary>
+    /// <returns>Nulo se o vídeo não existe; falso se ele não estava aguardando o envio manual.</returns>
+    public async Task<bool?> ConfirmManualAsync(Guid videoId, CancellationToken ct)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var video = await db.Videos.FirstOrDefaultAsync(v => v.Id == videoId, ct);
+        if (video is null) return null;
+        if (!video.AwaitsManual) return false;
+
+        video.ManualDoneAtUtc = Now;
+        video.UpdatedAtUtc = Now;
+        await db.SaveChangesAsync(ct);
+        return true;
     }
 
     public async Task SetPausedAsync(bool paused, CancellationToken ct)

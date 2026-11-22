@@ -213,7 +213,10 @@ function derive(data) {
     && (v.publications.length === 0 || v.publications.some(p => p.state === 'Scheduled')));
   const reauth = (data.accounts || []).filter(a => a.status === 'NeedsReauth');
   const next = pending.filter(v => v.scheduledAtUtc).sort((a, b) => a.scheduledAtUtc.localeCompare(b.scheduledAtUtc))[0] || null;
-  return { pending, done, unknown, failed, reauth, next, awaitingTime, lastActivity, issues: data.issues || [] };
+  // Verticais publicados no automático que esperam você postar à mão nas outras redes (mais antigos primeiro).
+  const manual = videos.filter(v => v.awaitingManual)
+    .sort((a, b) => (a.manualPendingSinceUtc || '').localeCompare(b.manualPendingSinceUtc || ''));
+  return { pending, done, unknown, failed, reauth, next, awaitingTime, manual, lastActivity, issues: data.issues || [] };
 }
 
 async function refresh() {
@@ -299,6 +302,7 @@ function videoItem(video, options = {}) {
       h('div', { class: 'top-actions' },
         horizontal ? pill('YouTube horizontal', 'info') : null,
         pill(label, kind),
+        video.awaitingManual ? pill('Pendente manual', 'warn') : null,
         options.cancel && timeEditable && !showPicker && video.scheduledAtUtc
           ? h('button', {
             class: 'button small', type: 'button', text: 'Mudar horário',
@@ -376,10 +380,10 @@ function timePicker(video) {
 }
 
 /** Botão de ação que pede confirmação na própria página, em dois passos. */
-function confirmButton(key, label, question, onConfirm) {
+function confirmButton(key, label, question, onConfirm, kind = 'danger') {
   if (state.confirming !== key) {
     return h('button', {
-      class: 'button small danger', type: 'button', text: label,
+      class: 'button small ' + kind, type: 'button', text: label,
       onclick: () => { state.confirming = key; render(true); },
     });
   }
@@ -387,7 +391,7 @@ function confirmButton(key, label, question, onConfirm) {
   return h('span', { class: 'top-actions' },
     h('span', { class: 'small', text: question }),
     h('button', {
-      class: 'button small danger', type: 'button', text: 'Sim',
+      class: 'button small ' + kind, type: 'button', text: 'Sim',
       onclick: () => { state.confirming = null; onConfirm(); },
     }),
     h('button', {
@@ -436,6 +440,7 @@ function renderOverview() {
   return [
     stats,
     alerts.length ? card('Atenção', h('div', { class: 'stack' }, alerts.map(text => h('div', { class: 'error-text', text })))) : null,
+    data.schedule.manualPosting || view.manual.length ? manualCard() : null,
     agendaCard(),
     card('Contas', accounts),
     card('Próximos na fila', view.pending.length
@@ -443,6 +448,32 @@ function renderOverview() {
       : emptyText('Nada na fila. Coloque uma pasta com video.mp4 e legenda.txt em "01 - ENVIAR VERTICAL", ou um vídeo horizontal com legenda.txt e thumbnail em "01 - ENVIAR YOUTUBE".')),
     card('Últimos finalizados', view.done.length ? view.done.slice(0, 3).map(v => videoItem(v)) : emptyText('Nenhum vídeo finalizado ainda.')),
   ];
+}
+
+// ---------- envio manual ----------
+
+/** Redes que não estão no automático: é nelas que o vídeo precisa ser postado à mão. */
+function manualNetworks() {
+  const automatic = new Set(state.data.schedule.platforms || []);
+  return ['Instagram', 'Facebook', 'TikTok', 'Threads'].filter(p => !automatic.has(p));
+}
+
+function manualCard() {
+  const { manual } = state.view;
+  const networks = manualNetworks();
+  const where = networks.length ? networks.join(', ') : 'as outras redes';
+  const items = manual.map(video => h('div', { class: 'item' },
+    h('div', { class: 'row' },
+      h('div', {},
+        h('div', { class: 'title', text: video.folderName }),
+        h('div', { class: 'muted small', text: `Saiu no automático ${relative(video.manualPendingSinceUtc)} · pasta 07 - PENDENTE MANUAL` })),
+      h('div', { class: 'top-actions' },
+        confirmButton('manual:' + video.id, 'Já postei', `Já postou em ${where}?`,
+          () => act(() => api(`/api/videos/${video.id}/manual-done`, 'POST'), 'Envio manual confirmado. A pasta vai para 04 - ENVIADOS.'),
+          'primary')))));
+  return card(`Pendente manual${manual.length ? ` (${manual.length})` : ''}`,
+    h('p', { class: 'muted small', text: `Verticais que já saíram no automático e esperam você postar à mão em ${where}. Pegue o vídeo e a legenda na pasta 07 - PENDENTE MANUAL; depois de postar, clique em "Já postei" e a pasta vai para 04 - ENVIADOS.` }),
+    manual.length ? items : emptyText('Nada pendente. Quando um vertical sair no automático, ele aparece aqui.'));
 }
 
 // ---------- agenda dos próximos dias (gráfico) ----------
@@ -761,7 +792,12 @@ function renderSchedule() {
       h('fieldset', {}, h('legend', { text: 'Redes que recebem publicações' }),
         h('div', { class: 'checks' }, PLATFORMS.map(platform => h('label', {},
           h('input', { type: 'checkbox', name: 'platforms', value: platform, checked: s.platforms.includes(platform) }),
-          platform, connected.has(platform) ? null : h('span', { class: 'muted small', text: '(não conectada)' })))))),
+          platform, connected.has(platform) ? null : h('span', { class: 'muted small', text: '(não conectada)' })))),
+        h('p', { class: 'muted small', text: 'Rede desmarcada não recebe mais nada: as publicações que ainda não começaram são canceladas.' })),
+      h('fieldset', {}, h('legend', { text: 'Envio manual' }),
+        h('label', { class: 'checks' },
+          h('input', { type: 'checkbox', name: 'manualPosting', checked: s.manualPosting }),
+          'Depois do automático, deixar os verticais em 07 - PENDENTE MANUAL até eu confirmar que postei nas outras redes'))),
     state.scheduleProblems.length
       ? h('ul', { class: 'problems' }, state.scheduleProblems.map(text => h('li', { text })))
       : null,
@@ -792,6 +828,7 @@ function renderSchedule() {
       manualMaxPerDay: Number(values.get('manualMaxPerDay')),
       verticalSlots: values.get('verticalSlots'),
       horizontalSlots: values.get('horizontalSlots'),
+      manualPosting: values.get('manualPosting') === 'on',
     };
     if (state.busy) return;
     state.busy = true;

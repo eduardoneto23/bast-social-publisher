@@ -50,6 +50,17 @@ public sealed class Video
     public string FormatName { get; set; } = "";
 
     public string? Note { get; set; }
+
+    /// <summary>
+    /// Vertical que terminou o envio automático e espera o usuário postar à mão nas outras redes
+    /// (pasta PENDENTE MANUAL). <see cref="ManualDoneAtUtc"/> = o usuário confirmou no painel.
+    /// </summary>
+    public DateTime? ManualPendingSinceUtc { get; set; }
+    public DateTime? ManualDoneAtUtc { get; set; }
+
+    /// <summary>Publicado no automático e ainda aguardando o envio manual nas outras redes.</summary>
+    public bool AwaitsManual => State == VideoState.Published && ManualPendingSinceUtc is not null && ManualDoneAtUtc is null;
+
     public DateTime ImportedAtUtc { get; set; }
     public DateTime UpdatedAtUtc { get; set; }
 

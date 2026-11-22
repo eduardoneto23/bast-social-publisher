@@ -272,6 +272,9 @@ namespace Bast.Infrastructure.Persistence.Migrations
                     b.Property<int>("ManualMaxPerDay")
                         .HasColumnType("INTEGER");
 
+                    b.Property<bool>("ManualPosting")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int>("MaxAttempts")
                         .HasColumnType("INTEGER");
 
@@ -375,6 +378,12 @@ namespace Bast.Infrastructure.Persistence.Migrations
                     b.Property<string>("Lane")
                         .IsRequired()
                         .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ManualDoneAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ManualPendingSinceUtc")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Note")

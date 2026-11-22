@@ -14,6 +14,7 @@ public sealed class Workspace
         [WorkspaceFolder.Sent] = "04 - ENVIADOS",
         [WorkspaceFolder.Errors] = "05 - ERROS",
         [WorkspaceFolder.Archived] = "06 - ARQUIVADOS",
+        [WorkspaceFolder.ManualPending] = "07 - PENDENTE MANUAL",
     };
 
     public Workspace(string root)
