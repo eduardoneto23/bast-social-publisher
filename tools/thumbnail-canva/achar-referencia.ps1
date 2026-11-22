@@ -1,4 +1,4 @@
-<#
+﻿<#
   Acha no vídeo o momento que a imagem de referência mostra e extrai esse quadro em qualidade cheia.
   1. Varredura: compara a referência com o vídeo a cada 0,5 s (imagens reduzidas a 64x36, tons de cinza).
   2. Refino: em volta do melhor ponto (±1 s), compara quadro a quadro na taxa original do vídeo.
@@ -7,6 +7,8 @@
   "diferenca" é a diferença média de brilho (0 = idêntico, 255 = oposto). "confiavel" = diferença até
   -Threshold: acima disso a referência provavelmente não é deste vídeo (ou foi recortada/editada) e
   a própria imagem de referência deve ser usada.
+  "usarReferencia" = a referência tem resolução igual ou maior que a do vídeo (um print do jogo/OBS):
+  aí ela é mais nítida que o quadro do vídeo e os recortes devem sair dela (recorte.ps1 -Image).
   Saída: JSON.
 #>
 param(
@@ -86,10 +88,19 @@ $out = Join-Path $OutDir 'quadro-referencia.jpg'
 & $Ffmpeg -v error -y -i $original -vf $frame -q:v 2 $out
 Remove-Item $refRaw, $coarseRaw, $fineRaw -ErrorAction SilentlyContinue
 
+# Print com resolução igual ou maior que a do vídeo (ex.: captura do jogo ou do OBS) é melhor que qualquer
+# quadro do vídeo comprimido: nesse caso a thumbnail deve ser montada a partir da própria imagem.
+$refSize = (& $Ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 $Reference).Trim() -split ','
+$videoSize = (& $Ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 $Video).Trim() -split ','
+$sharper = [int]$refSize[0] -ge 0.95 * [int]$videoSize[0] -and [int]$refSize[1] -ge 0.95 * [int]$videoSize[1]
+
 [pscustomobject]@{
-    segundos   = [Math]::Round($best, 2)
-    diferenca  = [Math]::Round($bestScore, 1)
-    confiavel  = $bestScore -le $Threshold
-    quadro     = $out
-    original   = $original
+    segundos        = [Math]::Round($best, 2)
+    diferenca       = [Math]::Round($bestScore, 1)
+    confiavel       = $bestScore -le $Threshold
+    quadro          = $out
+    original        = $original
+    referencia      = "$($refSize[0])x$($refSize[1])"
+    video           = "$($videoSize[0])x$($videoSize[1])"
+    usarReferencia  = $sharper
 } | ConvertTo-Json

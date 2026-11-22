@@ -12,7 +12,7 @@ Automação **fora do serviço BAST**: uma tarefa agendada do Claude (app Claude
 
 1. `pendentes.ps1` acha as pastas com um vídeo e um .txt, sem imagem, paradas há pelo menos 60 s (cópia terminada).
 2. `quadros.ps1` tira 12 quadros do vídeo e monta uma folha de contato; o Claude escolhe o melhor.
-3. Com `trecho.ps1` (folha segundo a segundo) o Claude acha duas cenas: a ação mais forte para o fundo (perseguição, polícia, batida...) e um close do personagem. `recorte.ps1` tira cada uma em resolução cheia, recortando só a área útil (sem a sua webcam e sem o HUD do jogo, nada de caixa preta) e melhorando cor e nitidez.
+3. Com `trecho.ps1` (folha segundo a segundo) o Claude acha duas cenas: a ação mais forte para o fundo (perseguição, polícia, batida...) e um close do personagem. `recorte.ps1` tira cada uma em resolução cheia, recortando só a área útil (sem a sua webcam e sem o HUD do jogo, nada de caixa preta) e melhorando cor e nitidez. Ele mede a nitidez dos ~60 quadros em volta do momento escolhido e usa o mais nítido (menos borrão de movimento e de compressão), só entre quadros que ainda mostram a mesma cena. Quando o recorte precisa crescer, ele é ampliado com IA (Real-ESRGAN, em `SYSTEM\tools\realesrgan` da pasta principal, misturado 50% com a ampliação comum para não inventar textura); acima de 2,5x (ou 1,2x sem a IA) ele avisa e a tarefa procura um close em vez de esticar a imagem.
 4. O Claude envia as duas ao Canva (`enviar-canva.ps1`), remove o fundo do personagem e monta uma colagem numa cópia do "BAST - Modelo Thumbnail", no estilo dos canais grandes: cena de ação no fundo, personagem recortado grande num lado e a frase em 2 linhas (parte branca + palavra amarela) no outro. Confere a prévia e exporta em PNG.
 5. `salvar-thumb.ps1` confere o PNG (1280x720, até 2 MB, o limite do YouTube) e grava `thumbnail.png` na pasta.
 6. `mover-para-youtube.ps1` move a pasta completa para `01 - ENVIAR YOUTUBE` de uma vez (nome repetido ganha " (2)").
@@ -21,18 +21,17 @@ O modelo original nunca é alterado: cada vídeo ganha uma cópia chamada "BAST 
 
 ## Vídeos verticais (Reels e Shorts)
 
-A mesma automação vale para os verticais, numa fila separada:
+Os verticais têm uma fila separada, que hoje cria **só a legenda** (a capa está desativada):
 
 ```
-00 - THUMB VERTICAL/    você coloca aqui: vídeo (+ legenda.txt, se quiser)
-   (legenda e capa criadas)
-01 - ENVIAR VERTICAL/   a pasta chega aqui com legenda.txt e thumbnail.jpg e o BAST agenda nos horários dos verticais
+00 - THUMB VERTICAL/    você coloca aqui: o vídeo
+   (legenda.txt criado: título, descrição curta, "Siga o Bast" e 5 hashtags)
+01 - ENVIAR VERTICAL/   a pasta chega aqui e o BAST agenda nos horários dos verticais
 ```
 
-- **Capa:** 1080x1920 em JPG, montada como colagem na cópia do "BAST - Modelo Capa Vertical" (`recorte.ps1 -Fundo -Vertical` para o fundo).
-- **Onde a capa aparece:** YouTube Shorts (thumbnail), Instagram (capa do Reel, enviada por um link temporário) e Facebook (thumbnail preferida do Reel). O Threads não tem capa.
-- **Legenda:** as mesmas regras, mas com no máximo 500 caracteres no total, porque também vai para o Threads.
-- Os scripts aceitam `-Vertical` (`pendentes.ps1`, `mover-para-youtube.ps1`); `salvar-legenda.ps1` e `salvar-thumb.ps1` descobrem a fila pela pasta.
+- **Legenda:** as mesmas regras de título e hashtags, com no máximo 500 caracteres no total.
+- **Capa:** não é criada. Se você puser uma imagem `thumbnail.jpg` na pasta, ela vai junto: o serviço a usa como capa no YouTube Shorts e, quando a Meta estiver ligada, no Instagram e no Facebook. Os scripts `recorte.ps1 -Fundo -Vertical`, `salvar-thumb.ps1` e o modelo "BAST - Modelo Capa Vertical" continuam prontos para quando a capa for religada.
+- Os scripts aceitam `-Vertical` (`pendentes.ps1`, `mover-para-youtube.ps1`); `salvar-legenda.ps1` e `salvar-thumb.ps1` descobrem a fila pela pasta. Nos verticais, a pasta está completa com vídeo e legenda.
 ## Legenda automática
 
 Se a pasta tiver só o vídeo, o nome do arquivo vira o título de trabalho (ex.: `gta vi o inicio.mp4`; se o nome for genérico, como `video.mp4`, vale o nome da pasta) e a tarefa cria o `legenda.txt`:
@@ -49,6 +48,7 @@ Para escolher você mesmo o momento da thumbnail, coloque na pasta uma imagem ch
 
 - **Como funciona:** `achar-referencia.ps1` procura esse momento no vídeo e tira o quadro em qualidade cheia.
 - **Precisão:** no teste, um print de 640x360 em baixa qualidade foi achado no segundo exato de um vídeo de 6 minutos, em cerca de 20 s.
+- **Print do jogo = thumb mais nítida:** se a referência for um print com a resolução do vídeo ou maior (captura do jogo ou do OBS, PNG), a tarefa monta a thumbnail a partir do próprio print, que é mais nítido que qualquer quadro do vídeo comprimido.
 - **Se não achar:** quando a imagem não é do vídeo, ou foi recortada ou editada, a tarefa usa a própria imagem.
 - **Webcam:** fica de fora do recorte, do mesmo jeito.
 - **A referência continua na pasta:** ela vai junto para `01 - ENVIAR YOUTUBE`, e o BAST usa a `thumbnail.png`. Se a pasta tiver a referência e uma thumbnail sua, a sua precisa se chamar `thumbnail.png` ou `thumbnail.jpg`.

@@ -18,6 +18,15 @@ function Test-InUse($files) {
     return $false
 }
 
+# Ampliação com IA (Real-ESRGAN, roda na placa de vídeo): SYSTEM\tools\realesrgan da pasta principal.
+# Nulo quando não está instalado; aí os recortes são ampliados do jeito comum.
+function Resolve-Upscaler {
+    try { $root = Resolve-Root '' } catch { return $null }
+    $exe = Join-Path $root 'SYSTEM\tools\realesrgan\realesrgan-ncnn-vulkan.exe'
+    if (Test-Path -LiteralPath $exe) { return $exe }
+    return $null
+}
+
 # Imagem de referência que o usuário põe na pasta (referencia.png/.jpg): não é a thumbnail.
 function Test-Reference($file) { return [IO.Path]::GetFileNameWithoutExtension($file.Name) -match '^refer[eê]ncia$' }
 
@@ -35,12 +44,12 @@ function Resolve-Tool([string]$Given, [string]$SettingName, [string]$Command) {
 }
 
 # Filas: horizontal (00 - THUMB -> 01 - ENVIAR YOUTUBE, thumbnail PNG 1280x720) e vertical
-# (00 - THUMB VERTICAL -> 01 - ENVIAR VERTICAL, capa JPG 1080x1920 para YouTube Shorts, Instagram e Facebook).
+# (00 - THUMB VERTICAL -> 01 - ENVIAR VERTICAL: só a legenda; a capa é opcional e não é criada pela tarefa).
 function Get-Lane([switch]$Vertical) {
     if ($Vertical) {
-        return [pscustomobject]@{ Name = 'vertical'; Source = '00 - THUMB VERTICAL'; Target = '01 - ENVIAR VERTICAL'; Width = 1080; Height = 1920; File = 'thumbnail.jpg'; Codec = 'mjpeg' }
+        return [pscustomobject]@{ Name = 'vertical'; Source = '00 - THUMB VERTICAL'; Target = '01 - ENVIAR VERTICAL'; Width = 1080; Height = 1920; File = 'thumbnail.jpg'; Codec = 'mjpeg'; NeedsThumbnail = $false }
     }
-    return [pscustomobject]@{ Name = 'horizontal'; Source = '00 - THUMB'; Target = '01 - ENVIAR YOUTUBE'; Width = 1280; Height = 720; File = 'thumbnail.png'; Codec = 'png' }
+    return [pscustomobject]@{ Name = 'horizontal'; Source = '00 - THUMB'; Target = '01 - ENVIAR YOUTUBE'; Width = 1280; Height = 720; File = 'thumbnail.png'; Codec = 'png'; NeedsThumbnail = $true }
 }
 
 # Fila de uma pasta de vídeo pela pasta em que ela está (00 - THUMB ou 00 - THUMB VERTICAL).

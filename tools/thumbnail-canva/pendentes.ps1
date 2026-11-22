@@ -1,6 +1,6 @@
 ﻿<#
   Lista as pastas de "00 - THUMB" (ou, com -Vertical, de "00 - THUMB VERTICAL") que ainda precisam de algo antes de ir para o YouTube:
-  um vídeo sem thumbnail, ou sem .txt (temThumbnail = true: o usuário já pôs a imagem, falta só a legenda), nada alterado nos últimos 60 segundos (cópia terminada).
+  um vídeo sem .txt ou (só nos horizontais) sem thumbnail; nos verticais só a legenda é criada. Ou seja: um vídeo sem thumbnail, ou sem .txt (temThumbnail = true: o usuário já pôs a imagem, falta só a legenda), nada alterado nos últimos 60 segundos (cópia terminada).
   Se a pasta não tem .txt, "legenda" vem nula e "tituloTrabalho" traz o título que o usuário deu
   (nome do arquivo de vídeo ou, se for genérico como "video", o nome da pasta): a legenda deve ser criada.
   "referencia" traz a imagem referencia.png/.jpg, se o usuário pôs uma: a thumbnail deve usar esse momento do vídeo.
@@ -16,7 +16,8 @@ param(
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'ferramentas.ps1')
 $Root = Resolve-Root $Root
-$inbox = Join-Path $Root (Get-Lane -Vertical:$Vertical).Source
+$lane = Get-Lane -Vertical:$Vertical
+$inbox = Join-Path $Root $lane.Source
 $videoExt = '.mp4', '.mov', '.m4v', '.webm'
 $imageExt = '.jpg', '.jpeg', '.png'
 $generic = '^(video|vídeo|final|export|render|untitled|sem t[ií]tulo|novo)[\s_\-]*\d*$'
@@ -32,7 +33,7 @@ if (Test-Path $inbox) {
         $reference = $allImages | Where-Object { Test-Reference $_ } | Select-Object -First 1
         $images = @($allImages | Where-Object { -not (Test-Reference $_) })
         # Com imagem e com .txt já está completa (o mover-para-youtube.ps1 cuida). Com imagem e sem .txt falta só a legenda.
-        if ($videos.Count -ne 1 -or ($images.Count -gt 0 -and $texts.Count -gt 0)) { continue }
+        if ($videos.Count -ne 1 -or ($texts.Count -gt 0 -and ($images.Count -gt 0 -or -not $lane.NeedsThumbnail))) { continue }
 
         $newest = ($files | Measure-Object LastWriteTimeUtc -Maximum).Maximum
         if (((Get-Date).ToUniversalTime() - $newest).TotalSeconds -lt $StableSeconds) { continue }
