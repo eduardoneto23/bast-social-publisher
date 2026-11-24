@@ -71,8 +71,10 @@ public sealed class PublishingEngine(
             await scheduling.ReflowMissedAsync(ct);
         }
 
-        // Rede desmarcada na Agenda não recebe mais nada, nem o que já estava agendado.
+        // Rede desmarcada na Agenda não recebe mais nada, nem o que já estava agendado;
+        // rede marcada de novo volta para os vídeos que ainda não começaram a sair.
         await CancelDisabledPlatformsAsync(settings, ct);
+        await RestoreEnabledPlatformsAsync(settings, ct);
 
         // Consultas não publicam nada, então continuam mesmo com a fila pausada.
         await ConfirmPendingAsync(settings, ct);
@@ -107,13 +109,61 @@ public sealed class PublishingEngine(
         var now = Now;
         foreach (var publication in stale)
         {
-            publication.LastError = "Cancelada: a rede foi desmarcada na Agenda.";
+            publication.LastError = DisabledReason;
             publication.NextRetryAtUtc = null;
             publication.TransitionTo(PublicationState.Cancelled, now);
             logger.LogInformation("{Folder}: publicação em {Platform} cancelada (rede desmarcada na Agenda).", publication.Video!.FolderName, publication.Platform);
         }
 
         await db.SaveChangesAsync(ct);
+    }
+
+    private const string DisabledReason = "Cancelada: a rede foi desmarcada na Agenda.";
+
+    /// <summary>
+    /// Rede marcada de novo na Agenda: os verticais que ainda não começaram a sair (vídeo pronto e com
+    /// publicação agendada) voltam a recebê-la no mesmo horário. A publicação cancelada pela Agenda é
+    /// reagendada; a que nunca existiu é criada, validando a legenda.
+    /// </summary>
+    private async Task RestoreEnabledPlatformsAsync(ScheduleSettings settings, CancellationToken ct)
+    {
+        var active = scheduling.PlatformsFor(VideoLane.Standard, settings);
+        if (active.Count == 0) return;
+
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var videos = await db.Videos.Include(v => v.Publications)
+            .Where(v => v.State == VideoState.Ready && v.Lane == VideoLane.Standard && v.ScheduledAtUtc != null
+                        && v.Publications.Any(p => p.State == PublicationState.Scheduled))
+            .ToListAsync(ct);
+
+        var now = Now;
+        var changed = false;
+        foreach (var video in videos)
+        {
+            foreach (var platform in active)
+            {
+                var existing = video.Publications.FirstOrDefault(p => p.Platform == platform);
+                if (existing is null)
+                {
+                    scheduling.AddPublication(db, video, platform, video.ScheduledAtUtc, now);
+                }
+                else if (existing.State == PublicationState.Cancelled && existing.LastError == DisabledReason)
+                {
+                    existing.LastError = null;
+                    existing.ScheduledAtUtc = video.ScheduledAtUtc;
+                    existing.TransitionTo(PublicationState.Scheduled, now);
+                }
+                else
+                {
+                    continue;
+                }
+
+                changed = true;
+                logger.LogInformation("{Folder}: {Platform} marcada de novo na Agenda, entra no horário do vídeo.", video.FolderName, platform);
+            }
+        }
+
+        if (changed) await db.SaveChangesAsync(ct);
     }
 
     private async Task PublishDueAsync(ScheduleSettings settings, CancellationToken ct)
@@ -348,8 +398,13 @@ public sealed class PublishingEngine(
         var now = Now;
         foreach (var video in videos.Where(v => v.Publications.All(p => PublicationStateMachine.IsTerminal(p.State))))
         {
-            video.State = video.Publications.Any(p => p.State == PublicationState.Failed) ? VideoState.Error
-                : video.Publications.Any(p => p.State == PublicationState.Published) ? VideoState.Published
+            // Rede que recusou o vídeo antes de qualquer envio (ex.: longo demais para Reels do Facebook)
+            // não é erro do vídeo: ele saiu nas redes que aceitam. Erro é falha durante o envio.
+            var published = video.Publications.Any(p => p.State == PublicationState.Published);
+            var failedSending = video.Publications.Any(p => p.State == PublicationState.Failed && p.AttemptCount > 0);
+            var failedAny = video.Publications.Any(p => p.State == PublicationState.Failed);
+            video.State = failedSending || (failedAny && !published) ? VideoState.Error
+                : published ? VideoState.Published
                 : VideoState.Archived;
             video.UpdatedAtUtc = now;
             // Vertical publicado no automático: espera o envio manual nas outras redes (pasta PENDENTE MANUAL).

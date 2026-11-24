@@ -400,6 +400,41 @@ public sealed class SchedulingService(
     }
 
     /// <summary>
+    /// Cria a publicação do vídeo numa rede, validando a legenda: agendada no horário, ou com falha
+    /// quando a rede não aceita o vídeo. O vídeo precisa estar sendo acompanhado pelo contexto.
+    /// </summary>
+    internal Publication AddPublication(BastDbContext db, Video video, Platform platform, DateTime? slot, DateTime now)
+    {
+        var publication = new Publication
+        {
+            Id = Guid.NewGuid(),
+            VideoId = video.Id,
+            Platform = platform,
+            IdempotencyKey = $"{video.Id:N}-{platform}",
+            CreatedAtUtc = now,
+            UpdatedAtUtc = now,
+        };
+        publication.TransitionTo(PublicationState.Validating, now);
+
+        var problems = CaptionRules.Validate(platform, video.CaptionText, new VideoFacts(video.DurationSeconds, video.FileSizeBytes));
+        if (problems.Count > 0)
+        {
+            publication.LastError = "Incompatível com a plataforma: " + string.Join(" ", problems);
+            publication.TransitionTo(PublicationState.Failed, now);
+            logger.LogWarning("{Folder} não será publicado em {Platform}: {Problems}", video.FolderName, platform, publication.LastError);
+        }
+        else
+        {
+            publication.ScheduledAtUtc = slot;
+            publication.TransitionTo(PublicationState.Scheduled, now);
+        }
+
+        // O vídeo está sendo acompanhado pelo contexto: a publicação entra na lista dele sozinha.
+        db.Publications.Add(publication);
+        return publication;
+    }
+
+    /// <summary>
     /// Dá o horário ao vídeo: cria as publicações (validando a legenda de cada rede) ou, se já
     /// existem, move as que aguardam. Devolve falso quando nenhuma rede pode receber o vídeo.
     /// </summary>
@@ -417,36 +452,9 @@ public sealed class SchedulingService(
         }
         else
         {
-            var facts = new VideoFacts(video.DurationSeconds, video.FileSizeBytes);
             foreach (var platform in platforms)
             {
-                var publication = new Publication
-                {
-                    Id = Guid.NewGuid(),
-                    VideoId = video.Id,
-                    Platform = platform,
-                    IdempotencyKey = $"{video.Id:N}-{platform}",
-                    CreatedAtUtc = now,
-                    UpdatedAtUtc = now,
-                };
-                publication.TransitionTo(PublicationState.Validating, now);
-
-                var problems = CaptionRules.Validate(platform, video.CaptionText, facts);
-                if (problems.Count > 0)
-                {
-                    publication.LastError = "Incompatível com a plataforma: " + string.Join(" ", problems);
-                    publication.TransitionTo(PublicationState.Failed, now);
-                    logger.LogWarning("{Folder} não será publicado em {Platform}: {Problems}", video.FolderName, platform, publication.LastError);
-                }
-                else
-                {
-                    publication.ScheduledAtUtc = slot;
-                    publication.TransitionTo(PublicationState.Scheduled, now);
-                    anyScheduled = true;
-                }
-
-                // O vídeo está sendo acompanhado pelo contexto: a publicação entra na lista dele sozinha.
-                db.Publications.Add(publication);
+                anyScheduled |= AddPublication(db, video, platform, slot, now).State == PublicationState.Scheduled;
             }
         }
 

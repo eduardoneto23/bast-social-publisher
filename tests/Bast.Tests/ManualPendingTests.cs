@@ -40,6 +40,58 @@ public class ManualPendingTests
     }
 
     [Fact]
+    public async Task Checking_a_network_again_brings_it_back_to_videos_not_yet_sent()
+    {
+        using var h = new EngineHarness();
+        Assert.Empty(await OnlyAsync(h, Platform.YouTube));
+        await h.ImportAsync("Video 1");
+        await h.CycleAsync();
+        Assert.Single(h.Video("Video 1").Publications);
+
+        await h.ImportAsync("Video 2");
+        Assert.Empty(await OnlyAsync(h, Platform.YouTube, Platform.Instagram));
+        await h.CycleAsync();
+
+        // Video 1 foi agendado só com o YouTube: o Instagram é criado no mesmo horário.
+        var video = h.Video("Video 1");
+        var instagram = h.Publication("Video 1", Platform.Instagram);
+        Assert.Equal(PublicationState.Scheduled, instagram.State);
+        Assert.Equal(video.ScheduledAtUtc, instagram.ScheduledAtUtc);
+
+        // Desmarcar e marcar de novo: a publicação cancelada pela Agenda volta.
+        Assert.Empty(await OnlyAsync(h, Platform.YouTube));
+        await h.CycleAsync();
+        Assert.Equal(PublicationState.Cancelled, h.Publication("Video 1", Platform.Instagram).State);
+        Assert.Empty(await OnlyAsync(h, Platform.YouTube, Platform.Instagram));
+        await h.CycleAsync();
+        instagram = h.Publication("Video 1", Platform.Instagram);
+        Assert.Equal(PublicationState.Scheduled, instagram.State);
+        Assert.Null(instagram.LastError);
+        Assert.Equal(2, h.Video("Video 1").Publications.Count);
+    }
+
+    [Fact]
+    public async Task Network_that_refuses_the_video_does_not_make_it_an_error()
+    {
+        using var h = new EngineHarness(Platform.YouTube, Platform.Facebook);
+        Assert.Empty(await h.Commands.UpdateSettingsAsync(new ScheduleSettingsInput("10:00", "23:59", 240, 10, Enum.GetValues<DayOfWeek>(),
+            "America/Sao_Paulo", [Platform.YouTube, Platform.Facebook], MissedSlotPolicy.NextAllowedSlot, 30, 5, ManualPosting: true), default));
+        // 110 s: longo demais para Reels do Facebook, aceito no YouTube.
+        h.Env.Analyzer.Handler = path => VideoAnalysisResult.Ok(new VideoAnalysis(110, 1080, 1920, "h264", "aac", 30, 5_000_000, "mov,mp4"));
+        await h.ImportAsync("Video 1");
+        await h.CycleAsync();
+        Assert.Equal(PublicationState.Failed, h.Publication("Video 1", Platform.Facebook).State);
+
+        h.SetTime(EngineHarness.Local(14, 10));
+        await h.CycleAsync();
+        await h.CycleAsync();
+
+        var video = h.Video("Video 1");
+        Assert.Equal(VideoState.Published, video.State);
+        Assert.True(video.AwaitsManual);
+    }
+
+    [Fact]
     public async Task Published_vertical_waits_in_manual_pending_until_confirmed()
     {
         using var h = new EngineHarness(Platform.YouTube);
