@@ -1,0 +1,48 @@
+{
+  "name": "BAST_THUMBNAIL_V1",
+  "description": "Thumbnail 16:9 do Bast: uma ideia visual, elemento principal grande, rosto estratégico e contido, texto curto com uma palavra em destaque, preto/branco/amarelo, acabamento cinematográfico.",
+  "canvas": { "w": 1280, "h": 720 },
+  "safe_margin": 48,
+
+  "main_element": {
+    "width_share": [0.40, 0.62],
+    "_nota": "o acontecimento (veículo, personagem, objeto) ocupa 40-62% da largura, inteiro (nada cortado na borda), com o centro no terço esquerdo/central quando há rosto à direita"
+  },
+  "face": {
+    "height_share": [0.30, 0.45],
+    "max_height_share_reaction_concept": 0.55,
+    "position": "canto inferior oposto ao texto, base encostada embaixo",
+    "_nota": "rosto real do criador, nunca maior que o elemento principal (exceto no conceito B, até 55%); sem webcam relevante, sem rosto"
+  },
+  "text": {
+    "words": [2, 5],
+    "lines": [1, 2],
+    "font_size": [92, 112],
+    "max_area_share": 0.18,
+    "colors": { "base": "#ffffff", "highlight": "#ffde59" },
+    "highlight": "uma palavra ou expressão só",
+    "position": "topo-esquerda dentro da margem, longe do rosto e do elemento principal",
+    "_nota": "não repetir o título; não dominar a imagem"
+  },
+  "treatment": {
+    "target_luma": [0.30, 0.45],
+    "face_target_luma": 0.28,
+    "dark_scene_luma": 0.28,
+    "base": "eq=contrast=1.10:saturation=1.08",
+    "dark_extra": "eq=gamma=1.25:brightness=0.03",
+    "sharpen": "unsharp=5:5:0.7:5:5:0.0",
+    "vignette": "vignette=angle=PI/8",
+    "face": "eq=contrast=1.06:brightness=0.03:saturation=1.05,unsharp=3:3:0.5",
+    "_nota": "exposição corrigida só o necessário; cena escura ganha gamma; nada de saturação exagerada"
+  },
+  "concepts": {
+    "A": "acontecimento principal grande, rosto pequeno de apoio",
+    "B": "reação do criador em destaque, acontecimento ainda legível",
+    "C": "curiosidade/mistério: acontecimento + pergunta curta, sem rosto"
+  },
+  "validation": {
+    "small_sizes": [[246, 138], [168, 94]],
+    "checks": ["assunto reconhecível no tamanho pequeno", "texto legível", "rosto não maior que o elemento principal (A/C)", "nada importante cortado", "luminância média dentro do alvo", "sem sangue, sem nudez, sem elemento inventado"]
+  },
+  "canva_template": "BAST - Modelo Thumbnail"
+}

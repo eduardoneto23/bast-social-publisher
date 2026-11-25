@@ -35,4 +35,24 @@ public sealed class BastOptions
     public bool SimulationMode { get; set; }
 
     public string[] VideoExtensions { get; set; } = [".mp4", ".mov", ".m4v", ".webm"];
+
+    /// <summary>
+    /// Disco de trabalho da produção (análise, render, entregáveis). Vazio = produção desligada.
+    /// Ex.: "G:\BAST PRODUCAO". Nunca recebe o original da gravação.
+    /// </summary>
+    public string ProductionWorkFolder { get; set; } = "";
+
+    /// <summary>Espaço livre que sempre sobra no disco de trabalho: abaixo disso nenhum job começa.</summary>
+    public int ProductionReserveGb { get; set; } = 50;
+
+    /// <summary>Gravações mais curtas que isto são testes e não viram job.</summary>
+    public int ProductionMinDurationSeconds { get; set; } = 300;
+
+    /// <summary>Tempo sem mudar tamanho e data para a gravação contar como terminada.</summary>
+    public int ProductionStableSeconds { get; set; } = 120;
+
+    /// <summary>Nomes de arquivo ignorados (expressões regulares, sem diferenciar maiúsculas): Replay Buffer etc.</summary>
+    public string[] ProductionIgnorePatterns { get; set; } = ["^Replay", "^Screenshot"];
+
+    public int ProductionIntervalSeconds { get; set; } = 15;
 }

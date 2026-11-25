@@ -19,7 +19,8 @@ public sealed record VideoAnalysis(
     string? AudioCodec,
     double FrameRate,
     long? BitRate,
-    string FormatName);
+    string FormatName,
+    int AudioStreams = 0);
 
 public sealed record VideoAnalysisResult(VideoAnalysisStatus Status, VideoAnalysis? Analysis, string? Error)
 {

@@ -52,6 +52,8 @@ public enum WorkspaceFolder
     YouTubeInbox,
     /// <summary>Vertical já publicado no automático, aguardando o usuário postar à mão nas outras redes.</summary>
     ManualPending,
+    /// <summary>Destino das gravações do OBS. Os arquivos ficam ali; a produção só lê.</summary>
+    Recordings,
 }
 
 /// <summary>Fila do vídeo: define a pasta de entrada, as redes e a agenda.</summary>

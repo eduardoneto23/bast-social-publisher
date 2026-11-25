@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using Bast.Application;
 using Bast.Application.Persistence;
+using Bast.Application.Production;
 using Bast.Application.Publishing;
 using Bast.Connectors.Meta;
 using Bast.Connectors.YouTube;
@@ -38,6 +39,7 @@ builder.Services.AddHostedService<PublishingWorker>();
 builder.Services.AddHostedService<NotificationWorker>();
 builder.Services.AddHostedService<ThreadsTokenWorker>();
 builder.Services.AddHostedService<TelegramButtonsWorker>();
+builder.Services.AddHostedService<ProductionWorker>();
 
 var app = builder.Build();
 
@@ -454,6 +456,119 @@ app.MapGet("/api/notifications", async (IDbContextFactory<BastDbContext> factory
         .ToListAsync(ct);
 });
 
+// ---------- Produção: gravações do OBS viram jobs com etapas ----------
+
+app.MapGet("/api/production", async (IDbContextFactory<BastDbContext> factory, Bast.Application.Production.RecordingScanner scanner,
+    Bast.Application.Production.ProductionRunner runner, Bast.Application.Production.IDiskSpace disk, BastOptions options, CancellationToken ct) =>
+{
+    await using var db = await factory.CreateDbContextAsync(ct);
+    var control = await db.ProductionControl.AsNoTracking().FirstOrDefaultAsync(c => c.Id == 1, ct);
+    var jobs = await db.ProductionJobs.AsNoTracking().Include(j => j.Steps)
+        .OrderByDescending(j => j.ReceivedAtUtc).Take(50).ToListAsync(ct);
+    var free = string.IsNullOrWhiteSpace(options.ProductionWorkFolder) ? null : disk.FreeBytes(options.ProductionWorkFolder);
+    const double gb = Bast.Application.Production.ProductionSpace.Gb;
+    return Results.Ok(new
+    {
+        stopped = control?.Stopped ?? false,
+        stopReason = control?.StopReason,
+        stoppedAtUtc = control?.StoppedAtUtc,
+        runningJobId = runner.RunningJobId,
+        recordingsFolder = scanner.Folder,
+        disk = new
+        {
+            workFolder = options.ProductionWorkFolder,
+            configured = !string.IsNullOrWhiteSpace(options.ProductionWorkFolder),
+            freeGb = free is null ? (double?)null : Math.Round(free.Value / gb, 1),
+            reserveGb = options.ProductionReserveGb,
+        },
+        recordings = scanner.LastScan,
+        jobs = jobs.Select(j => new
+        {
+            j.Id,
+            j.SourceFileName,
+            j.ReceivedAtUtc,
+            j.DurationSeconds,
+            j.Width,
+            j.Height,
+            j.Fps,
+            sizeGb = Math.Round(j.SizeBytes / gb, 1),
+            j.AudioTracks,
+            j.Status,
+            j.CurrentStep,
+            j.Progress,
+            j.LastError,
+            j.Authorized,
+            j.AuthorizedAtUtc,
+            j.Paused,
+            j.BlockedReason,
+            j.WorkFolder,
+            j.CompletedAtUtc,
+            steps = j.Steps.OrderBy(s => s.Order).Select(s => new { s.Name, s.State, s.Attempts, s.StartedAtUtc, s.FinishedAtUtc, s.Output, s.Error }),
+        }),
+    });
+});
+
+app.MapGet("/api/production/jobs/{id:guid}/logs", async (Guid id, IDbContextFactory<BastDbContext> factory, CancellationToken ct) =>
+{
+    await using var db = await factory.CreateDbContextAsync(ct);
+    return await db.ProductionLogs.AsNoTracking().Where(l => l.JobId == id).OrderByDescending(l => l.Id).Take(300)
+        .Select(l => new { l.AtUtc, l.Level, l.Step, l.Message, l.Program, l.File })
+        .ToListAsync(ct);
+});
+
+app.MapPost("/api/production/jobs/{id:guid}/{action}", async (Guid id, string action, Bast.Application.Production.ProductionCommands commands, CancellationToken ct) =>
+{
+    (Bast.Application.Production.CommandResult Result, string Message) outcome = action switch
+    {
+        "authorize" => await commands.AuthorizeAsync(id, ct),
+        "pause" => await commands.PauseAsync(id, ct),
+        "resume" => await commands.ResumeAsync(id, ct),
+        "cancel" => await commands.CancelAsync(id, ct),
+        _ => (Bast.Application.Production.CommandResult.NotFound, "Ação desconhecida."),
+    };
+    return outcome.Result switch
+    {
+        Bast.Application.Production.CommandResult.Done => Results.Ok(new { message = outcome.Message }),
+        Bast.Application.Production.CommandResult.NotFound => Results.NotFound(new { problems = new[] { outcome.Message } }),
+        _ => Results.BadRequest(new { problems = new[] { outcome.Message } }),
+    };
+});
+
+// Entregas do job para revisar no painel: só arquivos de vídeo, imagem e relatório das pastas de entrega
+// (horizontal, verticais, thumbnails, relatório), até dois níveis. Nada fora da pasta de trabalho do job.
+app.MapGet("/api/production/jobs/{id:guid}/files", async (Guid id, IDbContextFactory<BastDbContext> factory, CancellationToken ct) =>
+{
+    await using var db = await factory.CreateDbContextAsync(ct);
+    var work = await db.ProductionJobs.AsNoTracking().Where(j => j.Id == id).Select(j => j.WorkFolder).FirstOrDefaultAsync(ct);
+    if (work is null || !Directory.Exists(work)) return Results.Ok(Array.Empty<object>());
+    var files = ProductionFiles.Deliverables(work)
+        .Select(f => new
+        {
+            path = Path.GetRelativePath(work, f.FullName).Replace('\\', '/'),
+            sizeKb = f.Length / 1024,
+            kind = ProductionFiles.KindOf(f.Extension),
+            modifiedAtUtc = f.LastWriteTimeUtc,
+        });
+    return Results.Ok(files);
+});
+
+app.MapGet("/api/production/jobs/{id:guid}/file", async (Guid id, string path, IDbContextFactory<BastDbContext> factory, CancellationToken ct) =>
+{
+    await using var db = await factory.CreateDbContextAsync(ct);
+    var work = await db.ProductionJobs.AsNoTracking().Where(j => j.Id == id).Select(j => j.WorkFolder).FirstOrDefaultAsync(ct);
+    if (work is null) return Results.NotFound();
+    var full = ProductionFiles.Resolve(work, path);
+    if (full is null) return Results.NotFound();
+    return Results.File(full, ProductionFiles.ContentType(Path.GetExtension(full)), enableRangeProcessing: true);
+});
+
+// Botão de emergência: nenhuma etapa nova começa e a atual é interrompida. Nada é apagado.
+app.MapPost("/api/production/stop", async (StopInput? input, Bast.Application.Production.ProductionCommands commands, CancellationToken ct) =>
+    Results.Ok(new { message = await commands.EmergencyStopAsync(input?.Reason, ct) }));
+
+app.MapPost("/api/production/release", async (Bast.Application.Production.ProductionCommands commands, CancellationToken ct) =>
+    Results.Ok(new { message = await commands.ReleaseStopAsync(ct) }));
+
 app.Run();
 
 static async Task<IResult> TelegramCallAsync(Func<Task<TelegramResult>> call)
@@ -490,6 +605,7 @@ static object ToResponse(ScheduleSettings s) => new
     horizontalSlots = s.HorizontalSlotTimes.Select(t => t.ToString("HH:mm")),
     s.HorizontalPerDay,
     s.ManualPosting,
+    s.AutoPublishApproved,
     s.Paused,
     s.UpdatedAtUtc,
 };
@@ -503,3 +619,4 @@ public sealed record ThreadsAppInput(string AppId, string AppSecret, string Redi
 public sealed record ThreadsCodeInput(string RedirectedUrl);
 public sealed record TelegramTokenInput(string Token);
 public sealed record TelegramLinkInput(string Code);
+public sealed record StopInput(string? Reason);

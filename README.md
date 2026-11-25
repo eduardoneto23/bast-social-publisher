@@ -241,6 +241,19 @@ Invoke-RestMethod http://127.0.0.1:5080/api/videos/ID-DO-VIDEO/publish-now -Meth
 
 Os mesmos controles estão no painel, na aba Fila.
 
+## Produção (gravações do OBS viram vídeos)
+
+Em implementação por fases. **Hoje (fase 2):** recebimento das gravações, jobs, etapas com retomada, parada de emergência e aba **Produção** no painel. A análise, a edição, as thumbnails e a revisão chegam nas próximas fases; até lá o job para, sem simular nada, na primeira etapa que ainda não existe.
+
+- **Pasta do OBS:** `00 - GRAVACOES` (configure o caminho de gravação do OBS para ela). O BAST só lê: o original nunca é movido, renomeado, alterado ou apagado.
+- **Gravação pronta** quando, ao mesmo tempo: o nome não é de Replay Buffer nem captura (`Bast:ProductionIgnorePatterns`, padrão `^Replay` e `^Screenshot`); o OBS largou o arquivo; tamanho e data não mudam há 2 min (`ProductionStableSeconds`); o ffprobe lê vídeo e áudio; o final decodifica sem erro; e dura mais de 5 min (`ProductionMinDurationSeconds`, as mais curtas são testes). A mesma gravação nunca gera dois jobs.
+- **Autorização:** cada job só roda depois do botão **Autorizar**, que vale só para as etapas daquele arquivo (nunca publica nada). Depois disso ele roda sozinho, inclusive de madrugada, se o serviço e o computador estiverem ligados.
+- **Disco de trabalho:** `Bast:ProductionWorkFolder` (ex.: `G:\BAST PRODUCAO`), uma pasta por job com `1 - analise`, `2 - horizontal`, `3 - verticais`, `4 - thumbnails`, `5 - projetos`, `6 - relatorio` e `temp`. Antes de começar, o job confere o espaço: precisa de ~1/4 do tamanho da gravação (mínimo 5 GB) e sempre sobram `ProductionReserveGb` (50 GB). Sem espaço o job espera, com o motivo no painel e um aviso; nada é apagado para abrir espaço.
+- **Etapas:** uma por vez, um job por vez. Etapa concluída nunca é refeita numa retomada; etapa interrompida (pausa, parada, reinício do computador) recomeça do zero e o resultado parcial nunca vira entregável. Falha comum tenta de novo até 3 vezes; falha que não se resolve tentando (original alterado, por exemplo) para o job em **Falhou**.
+- **Parada de emergência:** botão **PARAR AGORA** (ou `POST /api/production/stop`): nenhuma etapa nova começa e a atual é interrompida, sem apagar nada. **Liberar produção** (`POST /api/production/release`) continua de onde parou.
+- **Publicação:** interruptor **Publicar automaticamente o que for APROVADO** na Agenda, desligado por padrão. Desligado, cada vídeo produzido só entra na agenda pelo botão **Liberar** (fase 8).
+- **API:** `GET /api/production`, `GET /api/production/jobs/{id}/logs`, `POST /api/production/jobs/{id}/authorize|pause|resume|cancel`.
+
 ## Regras que o programa segue
 
 - Uma pasta só é importada quando para de mudar por 10 segundos, para não pegar cópia pela metade.

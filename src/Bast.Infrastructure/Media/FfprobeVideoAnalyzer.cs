@@ -113,13 +113,18 @@ public sealed class FfprobeVideoAnalyzer(MediaTools tools) : IVideoAnalyzer
 
         JsonElement? video = null;
         JsonElement? audio = null;
+        var audioStreams = 0;
         foreach (var stream in streams.EnumerateArray())
         {
             var type = GetString(stream, "codec_type");
             var isCover = stream.TryGetProperty("disposition", out var disp) &&
                           disp.TryGetProperty("attached_pic", out var pic) && pic.ValueKind == JsonValueKind.Number && pic.GetInt32() == 1;
             if (type == "video" && !isCover) video ??= stream;
-            if (type == "audio") audio ??= stream;
+            if (type == "audio")
+            {
+                audio ??= stream;
+                audioStreams++;
+            }
         }
 
         if (video is null) return (null, "O arquivo não contém fluxo de vídeo.");
@@ -145,7 +150,8 @@ public sealed class FfprobeVideoAnalyzer(MediaTools tools) : IVideoAnalyzer
             audio is null ? null : GetString(audio.Value, "codec_name"),
             ParseRate(GetString(v, "avg_frame_rate")) ?? ParseRate(GetString(v, "r_frame_rate")) ?? 0,
             bitRate,
-            GetString(format, "format_name") ?? ""), null);
+            GetString(format, "format_name") ?? "",
+            audioStreams), null);
     }
 
     private static int ReadRotation(JsonElement stream)

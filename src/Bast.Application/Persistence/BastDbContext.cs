@@ -13,6 +13,10 @@ public sealed class BastDbContext(DbContextOptions<BastDbContext> options) : DbC
     public DbSet<ScheduleSettings> ScheduleSettings => Set<ScheduleSettings>();
     public DbSet<PlatformAccount> PlatformAccounts => Set<PlatformAccount>();
     public DbSet<Notification> Notifications => Set<Notification>();
+    public DbSet<ProductionJob> ProductionJobs => Set<ProductionJob>();
+    public DbSet<ProductionStep> ProductionSteps => Set<ProductionStep>();
+    public DbSet<ProductionLog> ProductionLogs => Set<ProductionLog>();
+    public DbSet<ProductionControl> ProductionControl => Set<ProductionControl>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -83,6 +87,42 @@ public sealed class BastDbContext(DbContextOptions<BastDbContext> options) : DbC
             e.Property(n => n.DedupKey).HasMaxLength(100);
             e.HasIndex(n => n.DedupKey).IsUnique();
             e.HasIndex(n => new { n.SentAtUtc, n.DiscardedAtUtc, n.CreatedAtUtc });
+        });
+
+        modelBuilder.Entity<ProductionJob>(e =>
+        {
+            e.ToTable("production_jobs");
+            e.HasKey(j => j.Id);
+            e.Property(j => j.Status).HasConversion<string>().HasMaxLength(30);
+            e.Property(j => j.Fingerprint).HasMaxLength(300);
+            e.HasIndex(j => j.Fingerprint).IsUnique();
+            e.HasIndex(j => j.Status);
+            e.Ignore(j => j.IsFinished);
+        });
+
+        modelBuilder.Entity<ProductionStep>(e =>
+        {
+            e.ToTable("production_steps");
+            e.HasKey(s => s.Id);
+            e.Property(s => s.State).HasConversion<string>().HasMaxLength(20);
+            e.Property(s => s.Name).HasMaxLength(60);
+            e.HasOne<ProductionJob>().WithMany(j => j.Steps).HasForeignKey(s => s.JobId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(s => new { s.JobId, s.Name }).IsUnique();
+        });
+
+        modelBuilder.Entity<ProductionLog>(e =>
+        {
+            e.ToTable("production_logs");
+            e.HasKey(l => l.Id);
+            e.Property(l => l.Level).HasConversion<string>().HasMaxLength(10);
+            e.HasIndex(l => new { l.JobId, l.AtUtc });
+        });
+
+        modelBuilder.Entity<ProductionControl>(e =>
+        {
+            e.ToTable("production_control");
+            e.HasKey(c => c.Id);
+            e.Property(c => c.Id).ValueGeneratedNever();
         });
 
         modelBuilder.Entity<ScheduleSettings>(e =>

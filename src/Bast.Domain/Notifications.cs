@@ -11,6 +11,8 @@ public enum NotificationKind
     /// <summary>Modo manual: o vídeo espera o usuário escolher o horário.</summary>
     TimeNeeded,
     Test,
+    /// <summary>Produção: gravação recebida, job parado por espaço, falha ou revisão pedida.</summary>
+    ProductionAlert,
 }
 
 /// <summary>

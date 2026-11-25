@@ -188,3 +188,16 @@ footer { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wr
 .tip-time { font-variant-numeric: tabular-nums; font-weight: 600; }
 .tip-mark { color: var(--muted); text-align: center; }
 .tip-name { overflow-wrap: anywhere; }
+
+/* Produção */
+.progress { height: 8px; border-radius: 999px; background: var(--neutral-bg); overflow: hidden; margin-top: 8px; }
+.progress-fill { height: 100%; background: var(--accent); width: 0; }
+.steps { display: grid; gap: 4px; margin-top: 8px; }
+.step { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.log { margin-top: 10px; max-height: 320px; overflow: auto; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); font-size: .82rem; display: grid; gap: 2px; }
+.log-line.warning { color: var(--warn, #9a6700); }
+.log-line.error { color: var(--bad); }
+.deliverables { margin-top: 10px; display: grid; gap: 14px; }
+.delivery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; margin-top: 6px; }
+.delivery { border: 1px solid var(--border); border-radius: var(--radius); padding: 8px; background: var(--surface-2); display: grid; gap: 4px; align-content: start; }
+.delivery-media { width: 100%; max-height: 420px; object-fit: contain; border-radius: 6px; background: #000; display: block; }

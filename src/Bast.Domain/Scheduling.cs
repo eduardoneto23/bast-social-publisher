@@ -102,6 +102,12 @@ public sealed class ScheduleSettings
     /// </summary>
     public bool ManualPosting { get; set; }
 
+    /// <summary>
+    /// Produção: o que passar em todas as verificações (status APROVADO, sem alerta) vai para a agenda sozinho.
+    /// Desligado (padrão): cada conteúdo produzido só vai para a agenda quando o usuário clica em "Liberar".
+    /// </summary>
+    public bool AutoPublishApproved { get; set; }
+
     public bool Paused { get; set; }
     public DateTime UpdatedAtUtc { get; set; }
 

@@ -19,7 +19,8 @@ public sealed record ScheduleSettingsInput(
     int? ManualMaxPerDay = null,
     string? VerticalSlots = null,
     string? HorizontalSlots = null,
-    bool? ManualPosting = null);
+    bool? ManualPosting = null,
+    bool? AutoPublishApproved = null);
 
 /// <summary>Controles do usuário sobre a fila: configurar, pausar, retomar e cancelar.</summary>
 public sealed class QueueCommands(IDbContextFactory<BastDbContext> factory, SchedulingService scheduling, TimeProvider time)
@@ -60,6 +61,7 @@ public sealed class QueueCommands(IDbContextFactory<BastDbContext> factory, Sche
             settings.HorizontalSlots = TimeList.TryParse(input.HorizontalSlots, out var horizontal) ? TimeList.Format(horizontal) : input.HorizontalSlots;
         }
         if (input.ManualPosting is { } manualPosting) settings.ManualPosting = manualPosting;
+        if (input.AutoPublishApproved is { } autoPublish) settings.AutoPublishApproved = autoPublish;
         settings.UpdatedAtUtc = Now;
 
         var problems = settings.Validate();

@@ -13,6 +13,7 @@ public sealed class StartupService(
     DatabaseInitializer initializer,
     ImportService importService,
     PublishingEngine engine,
+    Bast.Application.Production.ProductionRunner production,
     IConnectorRegistry registry,
     ILogger<StartupService> logger) : IHostedService
 {
@@ -21,6 +22,7 @@ public sealed class StartupService(
         await initializer.InitializeAsync(cancellationToken);
         await importService.RecoverAsync(cancellationToken);
         await engine.RecoverAsync(cancellationToken);
+        await production.RecoverAsync(cancellationToken);
 
         if (registry.SimulationMode)
         {
@@ -138,6 +140,52 @@ public sealed class TelegramButtonsWorker(Bast.Notifications.Telegram.TelegramBo
                 {
                     break;
                 }
+            }
+        }
+    }
+}
+
+/// <summary>
+/// Produção: procura gravações prontas em 00 - GRAVACOES e roda as etapas dos jobs autorizados.
+/// Varredura e etapas correm em laços separados: uma etapa longa (render) não atrasa a detecção de gravações.
+/// </summary>
+public sealed class ProductionWorker(Bast.Application.Production.RecordingScanner scanner, Bast.Application.Production.ProductionRunner runner,
+    BastOptions options, ILogger<ProductionWorker> logger) : BackgroundService
+{
+    protected override Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        var interval = TimeSpan.FromSeconds(Math.Max(5, options.ProductionIntervalSeconds));
+        return Task.WhenAll(
+            LoopAsync("varredura de gravações", async ct => { await scanner.ScanAsync(ct); return false; }, interval, stoppingToken),
+            LoopAsync("etapas de produção", runner.RunCycleAsync, interval, stoppingToken));
+    }
+
+    private async Task LoopAsync(string what, Func<CancellationToken, Task<bool>> cycle, TimeSpan interval, CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            var worked = false;
+            try
+            {
+                worked = await cycle(stoppingToken);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Produção: falha no ciclo de {What}; nova tentativa no próximo ciclo.", what);
+            }
+
+            try
+            {
+                // Depois de uma etapa, a próxima começa logo; sem trabalho, espera o intervalo.
+                await Task.Delay(worked ? TimeSpan.FromSeconds(1) : interval, stoppingToken);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
             }
         }
     }

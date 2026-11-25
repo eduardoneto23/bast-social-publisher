@@ -221,11 +221,17 @@ function derive(data) {
 
 async function refresh() {
   try {
-    const [health, queue, issues, accounts, schedule, telegram, notifications] = await Promise.all([
+    const [health, queue, issues, accounts, schedule, telegram, notifications, production] = await Promise.all([
       api('/api/health'), api('/api/queue'), api('/api/import-issues'), api('/api/accounts'),
       api('/api/settings/schedule'), api('/api/connect/telegram/status'), api('/api/notifications'),
+      api('/api/production'),
     ]);
-    state.data = { health, queue, issues, accounts, schedule, telegram, notifications };
+    state.data = { health, queue, issues, accounts, schedule, telegram, notifications, production };
+    if (state.openLogs) {
+      await Promise.all(Object.keys(state.openLogs).map(async id => {
+        try { state.openLogs[id] = await api(`/api/production/jobs/${id}/logs`); } catch { /* job sumiu */ }
+      }));
+    }
     state.view = derive(state.data);
     state.offline = false;
     render();
@@ -808,7 +814,12 @@ function renderSchedule() {
       h('fieldset', {}, h('legend', { text: 'Envio manual' }),
         h('label', { class: 'checks' },
           h('input', { type: 'checkbox', name: 'manualPosting', checked: s.manualPosting }),
-          'Depois do automático, deixar os verticais em 07 - PENDENTE MANUAL até eu confirmar que postei nas outras redes'))),
+          'Depois do automático, deixar os verticais em 07 - PENDENTE MANUAL até eu confirmar que postei nas outras redes')),
+      h('fieldset', {}, h('legend', { text: 'Produção automática' }),
+        h('label', { class: 'checks' },
+          h('input', { type: 'checkbox', name: 'autoPublishApproved', checked: s.autoPublishApproved }),
+          'Publicar automaticamente o que for APROVADO'),
+        h('p', { class: 'muted small', text: 'Desligado: cada vídeo produzido só entra na agenda quando você clica em "Liberar". Ligado: só o que passou em todas as verificações de qualidade e segurança entra sozinho; qualquer alerta, cena sensível, problema de áudio, blur incerto ou revisão pendente bloqueia.' }))),
     state.scheduleProblems.length
       ? h('ul', { class: 'problems' }, state.scheduleProblems.map(text => h('li', { text })))
       : null,
@@ -840,6 +851,7 @@ function renderSchedule() {
       verticalSlots: values.get('verticalSlots'),
       horizontalSlots: values.get('horizontalSlots'),
       manualPosting: values.get('manualPosting') === 'on',
+      autoPublishApproved: values.get('autoPublishApproved') === 'on',
     };
     if (state.busy) return;
     state.busy = true;
@@ -873,8 +885,184 @@ function renderNotifications() {
     : emptyText('Nenhum aviso ainda.'))];
 }
 
+// ---------- produção (gravações do OBS viram vídeos) ----------
+
+const PRODUCTION_STATUS = {
+  Queued: ['Na fila', ''],
+  Analyzing: ['Analisando', 'info'],
+  SelectingHighlights: ['Selecionando momentos', 'info'],
+  EditingHorizontal: ['Editando horizontal', 'info'],
+  EditingVertical: ['Editando verticais', 'info'],
+  GeneratingThumbnails: ['Criando thumbnails', 'info'],
+  Rendering: ['Renderizando', 'info'],
+  QualityCheck: ['Revisão de qualidade', 'info'],
+  Fixing: ['Corrigindo', 'warn'],
+  WaitingApproval: ['Aguardando aprovação', 'warn'],
+  Approved: ['Aprovado', 'ok'],
+  ReadyToPublish: ['Liberado para publicar', 'ok'],
+  Publishing: ['Publicando', 'info'],
+  Published: ['Publicado', 'ok'],
+  Failed: ['Falhou', 'bad'],
+  Cancelled: ['Cancelado', ''],
+  NeedsHumanReview: ['Precisa de revisão humana', 'warn'],
+};
+
+const STEP_STATE = {
+  Pending: ['pendente', ''],
+  Running: ['rodando', 'info'],
+  Done: ['concluída', 'ok'],
+  Failed: ['falhou', 'bad'],
+  Skipped: ['pulada', ''],
+};
+
+const RECORDING_STATE = {
+  'Job criado': 'ok',
+  Gravando: 'info',
+  Estabilizando: 'info',
+  Aguardando: 'warn',
+  Ignorado: '',
+  Ilegível: 'bad',
+};
+
+function duration(seconds) {
+  const s = Math.round(seconds);
+  const hours = Math.floor(s / 3600);
+  const minutes = Math.floor((s % 3600) / 60);
+  return hours ? `${hours}h${String(minutes).padStart(2, '0')}min` : `${minutes}min${String(s % 60).padStart(2, '0')}s`;
+}
+
+function progressBar(percent) {
+  const fill = h('div', { class: 'progress-fill' });
+  fill.style.width = `${Math.max(0, Math.min(100, percent))}%`; // CSSOM: o CSP bloqueia style inline
+  return h('div', { class: 'progress', role: 'progressbar', 'aria-valuenow': String(percent), 'aria-valuemin': '0', 'aria-valuemax': '100' }, fill);
+}
+
+function productionJob(job, runningId) {
+  const [label, kind] = PRODUCTION_STATUS[job.status] || [job.status, ''];
+  const finished = ['Published', 'Cancelled', 'Failed'].includes(job.status);
+  const logs = state.openLogs && state.openLogs[job.id];
+  const toggleLogs = () => {
+    state.openLogs = state.openLogs || {};
+    if (state.openLogs[job.id]) { delete state.openLogs[job.id]; render(true); return; }
+    api(`/api/production/jobs/${job.id}/logs`).then(list => { state.openLogs[job.id] = list; render(true); })
+      .catch(error => notice(error.message, true));
+  };
+  const call = (action, message) => act(() => api(`/api/production/jobs/${job.id}/${action}`, 'POST'), r => r.message || message);
+  const files = state.openFiles && state.openFiles[job.id];
+  const toggleFiles = () => {
+    state.openFiles = state.openFiles || {};
+    if (state.openFiles[job.id]) { delete state.openFiles[job.id]; render(true); return; }
+    api(`/api/production/jobs/${job.id}/files`).then(list => { state.openFiles[job.id] = list; render(true); })
+      .catch(error => notice(error.message, true));
+  };
+
+  return h('div', { class: 'item' },
+    h('div', { class: 'row' },
+      h('div', {},
+        h('div', { class: 'title', text: job.sourceFileName }),
+        h('div', { class: 'muted small', text: `${duration(job.durationSeconds)} · ${job.width}x${job.height} · ${Math.round(job.fps)} qps · ${job.sizeGb} GB · ${job.audioTracks} faixa(s) de áudio · recebida ${fmtDateTime(job.receivedAtUtc)}` })),
+      h('div', { class: 'top-actions' },
+        pill(label, kind),
+        job.id === runningId ? pill('Etapa rodando agora', 'info') : null,
+        job.paused ? pill('Pausado', 'warn') : null,
+        !job.authorized && !finished
+          ? confirmButton('authorize:' + job.id, 'Autorizar', 'Autorizar as etapas de produção deste job (só deste arquivo, sem publicar nada)?',
+            () => call('authorize'), 'primary') : null,
+        job.authorized && !finished && !job.paused ? h('button', { class: 'button small', type: 'button', text: 'Pausar', onclick: () => call('pause') }) : null,
+        job.paused && !finished ? h('button', { class: 'button small primary', type: 'button', text: 'Retomar', onclick: () => call('resume') }) : null,
+        !finished ? confirmButton('cancel-job:' + job.id, 'Cancelar', 'Cancelar este job? O original e os arquivos já gerados ficam preservados.', () => call('cancel')) : null,
+        job.workFolder ? h('button', { class: 'button small', type: 'button', text: files ? 'Fechar entregas' : 'Ver entregas', onclick: toggleFiles }) : null,
+        h('button', { class: 'button small', type: 'button', text: logs ? 'Fechar registro' : 'Ver registro', onclick: toggleLogs }))),
+    h('div', { class: 'small', text: job.currentStep }),
+    job.authorized && !finished && job.progress > 0 ? progressBar(job.progress) : null,
+    job.blockedReason ? h('div', { class: 'small warn-text', text: job.blockedReason }) : null,
+    job.lastError ? h('div', { class: 'small error-text', text: job.lastError }) : null,
+    h('div', { class: 'steps' }, job.steps.map(step => {
+      const [stepLabel, stepKind] = STEP_STATE[step.state] || [step.state, ''];
+      return h('div', { class: 'step' },
+        pill(stepLabel, stepKind),
+        h('span', { class: 'small', text: step.name }),
+        step.output ? h('span', { class: 'small muted', text: step.output }) : null,
+        step.error ? h('span', { class: 'small error-text', text: step.error }) : null);
+    })),
+    job.workFolder ? h('div', { class: 'small muted', text: `Pasta de trabalho: ${job.workFolder}` }) : null,
+    files ? deliverables(job, files) : null,
+    logs ? h('div', { class: 'log' }, logs.length ? logs.map(l => h('div', { class: 'log-line ' + (l.level || '').toLowerCase() },
+      h('span', { class: 'muted', text: fmtDateTime(l.atUtc) }),
+      h('span', { text: ` [${l.step}] ${l.message}` }),
+      l.program ? h('span', { class: 'muted', text: ` · ${l.program}` }) : null)) : emptyText('Nada registrado.')) : null);
+}
+
+const DELIVERY_FOLDER = {
+  '2 - horizontal': 'Vídeo horizontal',
+  '3 - verticais': 'Verticais',
+  '4 - thumbnails': 'Thumbnails',
+  '6 - relatorio': 'Relatório e validação',
+};
+
+/** Entregas do job agrupadas por pasta; "anterior" (versão substituída) aparece marcada para comparar. */
+function deliverables(job, files) {
+  if (!files.length) return h('div', { class: 'small muted', text: 'Nenhuma entrega ainda.' });
+  const url = f => `/api/production/jobs/${job.id}/file?path=${encodeURIComponent(f.path)}`;
+  const groups = {};
+  for (const f of files) {
+    const top = f.path.split('/')[0];
+    (groups[top] = groups[top] || []).push(f);
+  }
+  return h('div', { class: 'deliverables' }, Object.keys(groups).map(top => h('div', { class: 'delivery-group' },
+    h('div', { class: 'title small', text: DELIVERY_FOLDER[top] || top }),
+    h('div', { class: 'delivery-grid' }, groups[top].map(f => {
+      const name = f.path.slice(top.length + 1);
+      const tag = name.startsWith('anterior/') ? pill('Anterior', '') : name.startsWith('conceitos/') ? pill('Conceito', 'info') : null;
+      const media = f.kind === 'video'
+        ? h('video', { controls: true, preload: 'metadata', src: url(f), class: 'delivery-media' })
+        : f.kind === 'image'
+          ? h('a', { href: url(f), target: '_blank', rel: 'noopener' }, h('img', { src: url(f), loading: 'lazy', alt: name, class: 'delivery-media' }))
+          : h('a', { href: url(f), target: '_blank', rel: 'noopener', class: 'button small', text: 'Abrir' });
+      return h('div', { class: 'delivery' }, media, h('div', { class: 'small' }, tag, h('span', { text: ` ${name}` })),
+        h('div', { class: 'small muted', text: `${f.sizeKb >= 1024 ? (f.sizeKb / 1024).toFixed(1) + ' MB' : f.sizeKb + ' KB'}` }));
+    })))));
+}
+
+function renderProduction() {
+  const p = state.data.production;
+  if (!p) return [card('Produção', emptyText('Sem resposta da produção.'))];
+
+  const control = p.stopped
+    ? h('div', { class: 'row' },
+      h('div', { class: 'error-text', text: `Produção parada desde ${fmtDateTime(p.stoppedAtUtc)}: ${p.stopReason || ''}. Nenhuma etapa começa até você liberar.` }),
+      confirmButton('release-production', 'Liberar produção', 'Liberar a produção? Os jobs autorizados continuam de onde pararam.',
+        () => act(() => api('/api/production/release', 'POST'), r => r.message), 'primary'))
+    : h('div', { class: 'row' },
+      h('div', { class: 'muted small', text: p.runningJobId ? 'Uma etapa está rodando agora.' : 'Nenhuma etapa rodando agora.' }),
+      h('button', {
+        class: 'button danger', type: 'button', text: 'PARAR AGORA',
+        onclick: () => act(() => api('/api/production/stop', 'POST', { reason: 'Parada de emergência pelo painel' }), r => r.message),
+      }));
+
+  const disk = p.disk.configured
+    ? `Disco de trabalho: ${p.disk.workFolder} · ${p.disk.freeGb === null ? 'indisponível' : p.disk.freeGb + ' GB livres'} · ${p.disk.reserveGb} GB ficam sempre livres`
+    : 'Disco de trabalho não configurado (Bast:ProductionWorkFolder): os jobs ficam esperando.';
+
+  const recordings = p.recordings || [];
+  return [
+    card('Produção',
+      h('p', { class: 'muted small', text: `O OBS grava em ${p.recordingsFolder}. Quando uma gravação termina (o OBS larga o arquivo, ele para de mudar por 2 min, abre do começo ao fim e tem mais de 5 min), ela vira um job. Nada roda sem a sua autorização e o original nunca é movido nem alterado.` }),
+      h('p', { class: 'small', text: disk }),
+      control),
+    card('Gravações na pasta', recordings.length
+      ? recordings.map(r => h('div', { class: 'item' },
+        h('div', { class: 'row' },
+          h('div', {}, h('div', { class: 'title', text: r.fileName }), h('div', { class: 'muted small', text: r.detail })),
+          pill(r.state, RECORDING_STATE[r.state] || ''))))
+      : emptyText('Nenhum arquivo na pasta de gravações.')),
+    card('Jobs de produção', p.jobs.length ? p.jobs.map(job => productionJob(job, p.runningJobId)) : emptyText('Nenhuma gravação recebida ainda.')),
+  ];
+}
+
 const RENDERERS = {
   overview: renderOverview,
+  production: renderProduction,
   queue: renderQueue,
   history: renderHistory,
   problems: renderProblems,
@@ -905,6 +1093,14 @@ function render(force) {
   const queueCount = document.getElementById('count-queue');
   queueCount.textContent = view.pending.length ? String(view.pending.length) : '';
   queueCount.className = 'count' + (view.awaitingTime.length ? ' alert' : '');
+  // Produção: jobs que esperam você (autorizar, revisar, aprovar) ou que estão parados por algum motivo.
+  const productionJobs = (data.production && data.production.jobs) || [];
+  const waitingYou = productionJobs.filter(j => (!j.authorized && !['Cancelled', 'Failed', 'Published'].includes(j.status))
+    || ['NeedsHumanReview', 'WaitingApproval', 'Failed'].includes(j.status) || j.blockedReason).length;
+  const productionCount = document.getElementById('count-production');
+  productionCount.textContent = waitingYou ? String(waitingYou) : '';
+  productionCount.className = 'count' + (waitingYou || (data.production && data.production.stopped) ? ' alert' : '');
+
   const problems = view.issues.length + view.failed.length + view.unknown.length + view.reauth.length;
   const problemCount = document.getElementById('count-problems');
   problemCount.textContent = problems ? String(problems) : '';
@@ -917,7 +1113,10 @@ function render(force) {
   const pickingTime = document.activeElement && document.activeElement.closest && document.activeElement.closest('.time-picker');
   // Nem enquanto o detalhe de um dia do gráfico está aberto (mouse em cima ou foco).
   const readingChart = document.querySelector('.agenda-chart:hover, .agenda-col:focus');
-  if ((state.tab !== 'schedule' || !state.scheduleDirty || force) && (!pickingTime || force) && (!readingChart || force)) {
+  // Nem enquanto um vídeo de entrega toca ou o mouse está sobre as entregas (redesenhar reiniciaria o vídeo).
+  const watching = document.querySelector('.deliverables:hover')
+    || [...document.querySelectorAll('.deliverables video')].some(v => !v.paused);
+  if ((state.tab !== 'schedule' || !state.scheduleDirty || force) && (!pickingTime || force) && (!readingChart || force) && (!watching || force)) {
     const panel = document.getElementById('tab-' + state.tab);
     const scroll = window.scrollY;
     panel.replaceChildren(...RENDERERS[state.tab]().filter(Boolean));

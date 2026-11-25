@@ -1,0 +1,33 @@
+{
+  "name": "BAST_VERTICAL_V1",
+  "description": "Vertical 9:16 do Bast: webcam pequena no topo, gameplay no centro como protagonista, faixa preta embaixo reservada à interface das redes (botões, descrição, comentários).",
+  "canvas": { "w": 1080, "h": 1920, "background": "black" },
+
+  "webcam_band": { "y": 0, "h": 288, "_nota": "15% da altura" },
+  "webcam_window": {
+    "h": 248,
+    "top": 20,
+    "align": "center",
+    "border": 4,
+    "border_color": "0xFFDE59",
+    "_nota": "janela compacta, proporção original da câmera, borda amarela fina da identidade Bast; some quando o criador não está"
+  },
+  "gap": { "h": 58, "_nota": "3% de respiro entre webcam e gameplay" },
+  "gameplay": { "y": 346, "h": 1094, "_nota": "57% da altura, largura total; recorte quase 1:1 do 1080p sem ampliar" },
+  "safe_bottom": { "y": 1440, "h": 480, "color": "black", "_nota": "25%: nada é desenhado aqui (nem legenda, nem webcam, nem gameplay)" },
+
+  "absent_webcam": "expand",
+  "_absent_nota": "sem o criador na câmera, a janela some e a gameplay ocupa também a faixa de cima (0 a 1440); a faixa preta de baixo continua",
+
+  "exclude_source_cam": true,
+  "_exclude_nota": "o recorte da gameplay nunca pega o canto do quadro original onde a webcam está gravada",
+
+  "max_upscale": 1.5,
+
+  "captions": { "font": "Arial Black", "size": 68, "outline": 6, "baseline_y": 1400, "max_chars_line": 18,
+                "_nota": "parte de baixo da área da gameplay, acima da faixa preta" },
+  "hook": { "font": "Arial Black", "size": 64, "top_y": 372, "seconds": 3.0,
+            "_nota": "topo da área da gameplay, fundo escuro translúcido" },
+
+  "colors": { "white": "&H00FFFFFF", "yellow": "&H0059DEFF", "outline": "&H00000000" }
+}

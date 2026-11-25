@@ -133,6 +133,206 @@ namespace Bast.Infrastructure.Persistence.Migrations
                     b.ToTable("platform_accounts", (string)null);
                 });
 
+            modelBuilder.Entity("Bast.Domain.ProductionControl", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("StopReason")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Stopped")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("StoppedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("production_control", (string)null);
+                });
+
+            modelBuilder.Entity("Bast.Domain.ProductionJob", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("AudioTracks")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("Authorized")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("AuthorizedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("BlockedReason")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("CompletedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CurrentStep")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<double>("DurationSeconds")
+                        .HasColumnType("REAL");
+
+                    b.Property<string>("Fingerprint")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("TEXT");
+
+                    b.Property<double>("Fps")
+                        .HasColumnType("REAL");
+
+                    b.Property<int>("Height")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("LastError")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PauseReason")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Paused")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Progress")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("ReceivedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("SourceFileName")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SourcePath")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Width")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("WorkFolder")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Fingerprint")
+                        .IsUnique();
+
+                    b.HasIndex("Status");
+
+                    b.ToTable("production_jobs", (string)null);
+                });
+
+            modelBuilder.Entity("Bast.Domain.ProductionLog", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("AtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("File")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("JobId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Level")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Program")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Step")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("JobId", "AtUtc");
+
+                    b.ToTable("production_logs", (string)null);
+                });
+
+            modelBuilder.Entity("Bast.Domain.ProductionStep", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Error")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("FinishedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("JobId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Order")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Output")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("StartedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("JobId", "Name")
+                        .IsUnique();
+
+                    b.ToTable("production_steps", (string)null);
+                });
+
             modelBuilder.Entity("Bast.Domain.Publication", b =>
                 {
                     b.Property<Guid>("Id")
@@ -254,6 +454,9 @@ namespace Bast.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("Bast.Domain.ScheduleSettings", b =>
                 {
                     b.Property<int>("Id")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("AutoPublishApproved")
                         .HasColumnType("INTEGER");
 
                     b.Property<int>("DaysMask")
@@ -438,6 +641,15 @@ namespace Bast.Infrastructure.Persistence.Migrations
                     b.ToTable("videos", (string)null);
                 });
 
+            modelBuilder.Entity("Bast.Domain.ProductionStep", b =>
+                {
+                    b.HasOne("Bast.Domain.ProductionJob", null)
+                        .WithMany("Steps")
+                        .HasForeignKey("JobId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Bast.Domain.Publication", b =>
                 {
                     b.HasOne("Bast.Domain.Video", "Video")
@@ -456,6 +668,11 @@ namespace Bast.Infrastructure.Persistence.Migrations
                         .HasForeignKey("PublicationId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Bast.Domain.ProductionJob", b =>
+                {
+                    b.Navigation("Steps");
                 });
 
             modelBuilder.Entity("Bast.Domain.Publication", b =>
