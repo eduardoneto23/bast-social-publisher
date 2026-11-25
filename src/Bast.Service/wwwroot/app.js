@@ -294,6 +294,8 @@ function videoItem(video, options = {}) {
     && (video.publications.some(p => p.state === 'Scheduled') || (awaiting && video.publications.length === 0));
 
   const cancellable = options.cancel && video.publications.some(p => ['Pending', 'Scheduled', 'RetryWait', 'Validating'].includes(p.state));
+  const retryable = video.state === 'Error' && video.publications.some(p => p.state === 'Failed' && p.attemptCount > 0);
+  const toManual = video.state === 'Error' && video.lane !== 'YouTubeHorizontal' && video.publications.some(p => p.state === 'Published');
   return h('div', { class: 'item' },
     h('div', { class: 'row' },
       h('div', {},
@@ -314,6 +316,15 @@ function videoItem(video, options = {}) {
               r => r.publications > 0
                 ? 'Envio antecipado. Começa em alguns segundos.'
                 : 'Este vídeo não está mais aguardando o horário.')) : null,
+        retryable
+          ? confirmButton('retry:' + video.id, 'Tentar de novo', 'Enviar de novo nas redes que falharam?',
+            () => act(() => api(`/api/videos/${video.id}/retry`, 'POST'),
+              r => r.publications > 0
+                ? `${r.publications} rede(s) vão tentar de novo agora. A pasta volta para 02 - AGENDADOS.`
+                : 'Nenhuma rede para tentar de novo (as que falharam estão desmarcadas na Agenda).')) : null,
+        toManual
+          ? confirmButton('manual:' + video.id, 'Postar manual', 'Postar à mão nas redes que falharam? O vídeo vai para PENDENTE MANUAL.',
+            () => act(() => api(`/api/videos/${video.id}/to-manual`, 'POST'), 'O vídeo foi para 07 - PENDENTE MANUAL.')) : null,
         cancellable ? confirmButton('cancel:' + video.id, 'Cancelar', 'Cancelar este vídeo?',
           () => act(() => api(`/api/videos/${video.id}/cancel`, 'POST'),
             r => r.notCancellable > 0

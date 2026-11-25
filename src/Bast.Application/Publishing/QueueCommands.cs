@@ -129,6 +129,71 @@ public sealed class QueueCommands(IDbContextFactory<BastDbContext> factory, Sche
     }
 
     /// <summary>
+    /// Vídeo em erro que já saiu em alguma rede: o usuário vai postar à mão onde falhou. As redes com falha
+    /// são canceladas e o vídeo vai para PENDENTE MANUAL (o "Já postei" leva a pasta para ENVIADOS).
+    /// </summary>
+    /// <returns>Nulo se o vídeo não existe; falso se ele não está em erro ou não saiu em nenhuma rede.</returns>
+    public async Task<bool?> SendToManualAsync(Guid videoId, CancellationToken ct)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var video = await db.Videos.Include(v => v.Publications).FirstOrDefaultAsync(v => v.Id == videoId, ct);
+        if (video is null) return null;
+        if (video.State != VideoState.Error || !video.Publications.Any(p => p.State == PublicationState.Published)) return false;
+
+        var now = Now;
+        foreach (var publication in video.Publications.Where(p => p.State == PublicationState.Failed))
+        {
+            publication.LastError = "Postar à mão: " + publication.LastError;
+            publication.TransitionTo(PublicationState.Cancelled, now);
+        }
+
+        video.State = VideoState.Published;
+        video.ManualPendingSinceUtc = now;
+        video.ManualDoneAtUtc = null;
+        video.UpdatedAtUtc = now;
+        await db.SaveChangesAsync(ct);
+        return true;
+    }
+
+    /// <summary>
+    /// Vídeo em erro: refaz agora as redes que falharam durante o envio (e que continuam marcadas na Agenda),
+    /// com as tentativas zeradas. As redes que já publicaram não são tocadas. O vídeo volta para AGENDADOS.
+    /// </summary>
+    /// <returns>Nulo se o vídeo não existe; senão, quantas publicações foram refeitas.</returns>
+    public async Task<int?> RetryFailedAsync(Guid videoId, CancellationToken ct)
+    {
+        var settings = await scheduling.GetSettingsAsync(ct);
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var video = await db.Videos.Include(v => v.Publications).FirstOrDefaultAsync(v => v.Id == videoId, ct);
+        if (video is null) return null;
+        if (video.State != VideoState.Error) return 0;
+
+        var active = scheduling.PlatformsFor(video.Lane, settings);
+        var failed = video.Publications
+            .Where(p => p.State == PublicationState.Failed && p.AttemptCount > 0 && active.Contains(p.Platform))
+            .ToList();
+        if (failed.Count == 0) return 0;
+
+        var now = Now;
+        foreach (var publication in failed)
+        {
+            publication.AttemptCount = 0;
+            publication.LastError = null;
+            publication.NextRetryAtUtc = null;
+            publication.ScheduledAtUtc = now;
+            publication.TransitionTo(PublicationState.Scheduled, now);
+        }
+
+        // Horário do vídeo = agora, senão a remarcação de horários perdidos levaria o envio para a próxima janela.
+        video.State = VideoState.Ready;
+        video.ScheduledAtUtc = now;
+        video.ManualPendingSinceUtc = null;
+        video.UpdatedAtUtc = now;
+        await db.SaveChangesAsync(ct);
+        return failed.Count;
+    }
+
+    /// <summary>
     /// Antecipa para agora as publicações do vídeo que ainda aguardam o horário. Quem envia continua
     /// sendo o motor, no próximo ciclo, com as mesmas regras de sempre (pausa, tentativas, sem duplicar).
     /// </summary>

@@ -201,7 +201,7 @@ public sealed class MetaHarness : IDisposable
         }
 
         Facebook = new FacebookConnector(Meta, Auth);
-        Instagram = new InstagramConnector(Meta, Auth, Options.Create(new InstagramOptions()), Files);
+        Instagram = new InstagramConnector(Meta, Auth, Options.Create(new InstagramOptions { UseCover = true }), Files);
         VideoPath = Path.Combine(Env.Root, "video.mp4");
         FileBytes = RandomNumberGenerator.GetBytes(300_000);
         File.WriteAllBytes(VideoPath, FileBytes);
@@ -544,6 +544,60 @@ public class InstagramConnectorTests
         var published = await h.Instagram.CheckAsync(h.Request(), default);
         Assert.Equal(PublishOutcomeKind.Published, published.Kind);
         Assert.Equal(1, h.Meta.MediaPublishCalls);
+    }
+
+    private sealed class FakeCompactor(string output) : IVideoCompactor
+    {
+        public int Calls { get; private set; }
+        public Task<string?> CompactAsync(string videoPath, CancellationToken ct) { Calls++; return Task.FromResult<string?>(output); }
+    }
+
+    [Fact]
+    public async Task Large_video_goes_as_a_lighter_copy_and_small_one_as_the_original()
+    {
+        using var h = new MetaHarness();
+        var light = Path.Combine(h.Env.Root, "leve.mp4");
+        var lightBytes = RandomNumberGenerator.GetBytes(1000);
+        File.WriteAllBytes(light, lightBytes);
+        var compactor = new FakeCompactor(light);
+
+        // Abaixo do limite: vai o original, sem cópia.
+        var small = new InstagramConnector(h.Meta, h.Auth, Options.Create(new InstagramOptions { CompactAboveMb = 1 }), null, compactor);
+        await small.PublishAsync(h.Request(), default);
+        Assert.Equal(h.FileBytes, h.Meta.ContainerUploads["c1"]);
+        Assert.Equal(0, compactor.Calls);
+
+        // Acima do limite: vai a cópia leve; o original não muda.
+        var big = RandomNumberGenerator.GetBytes(1_200_000);
+        File.WriteAllBytes(h.VideoPath, big);
+        h.SavedIds.Clear();
+        await small.PublishAsync(h.Request(), default);
+        Assert.Equal(lightBytes, h.Meta.ContainerUploads["c2"]);
+        Assert.Equal(1, compactor.Calls);
+        Assert.Equal(big, File.ReadAllBytes(h.VideoPath));
+    }
+
+    [Fact]
+    public async Task Upload_server_failure_is_retried_in_a_new_container()
+    {
+        using var h = new MetaHarness();
+        h.Meta.Intercept = r => r.RequestUri!.AbsolutePath.Contains("/ig-api-upload/")
+            ? new HttpResponseMessage(System.Net.HttpStatusCode.BadRequest)
+            {
+                Content = new StringContent("""{"debug_info":{"retriable":false,"type":"ProcessingFailedError","message":"Request processing failed"}}"""),
+            }
+            : null;
+
+        var failed = await h.Instagram.PublishAsync(h.Request(), default);
+        Assert.Equal(PublishOutcomeKind.Transient, failed.Kind);
+        Assert.Equal(TimeSpan.FromMinutes(10), failed.RetryAfter);
+        Assert.Contains("Request processing failed", failed.Error);
+
+        h.Meta.Intercept = null;
+        var second = await h.Instagram.PublishAsync(h.Request(), default);
+        Assert.Equal(PublishOutcomeKind.Processing, second.Kind);
+        Assert.Equal("container:c2", h.SavedIds.Last());
+        Assert.Equal(0, h.Meta.MediaPublishCalls);
     }
 
     [Fact]

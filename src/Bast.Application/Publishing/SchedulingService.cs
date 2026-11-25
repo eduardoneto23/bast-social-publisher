@@ -295,10 +295,12 @@ public sealed class SchedulingService(
         var cutoff = now.AddMinutes(-settings.MissedGraceMinutes);
 
         await using var db = await factory.CreateDbContextAsync(ct);
+        // Vídeo que já saiu em alguma rede (nova tentativa das que falharam) não é post novo: não é remarcado.
         var queue = (await db.Videos
                 .Include(v => v.Publications)
                 .Where(v => v.State == VideoState.Ready && v.ScheduledAtUtc != null
-                            && v.Publications.Any(p => p.State == PublicationState.Scheduled))
+                            && v.Publications.Any(p => p.State == PublicationState.Scheduled)
+                            && !v.Publications.Any(p => p.State == PublicationState.Published))
                 .ToListAsync(ct))
             .OrderBy(v => v.ScheduledAtUtc)
             .ThenBy(v => v.FolderName, NaturalStringComparer.Instance)

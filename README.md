@@ -148,7 +148,9 @@ E você, curtiu essa novidade?
 ```
 
 - A **primeira linha** vira o título no YouTube (até 100 caracteres). O texto inteiro vira a descrição.
-- A imagem opcional (`thumbnail.jpg`, de preferência 1080x1920) vira a capa no YouTube Shorts, no Instagram (por um link temporário, como no Threads) e no Facebook. Uma `referencia.png` nunca é usada como capa.
+- A imagem opcional (`thumbnail.jpg`, de preferência 1080x1920) vira a capa no YouTube Shorts e no Facebook. No Instagram o Reel sai com a capa automática: a capa por link temporário fica desligada (`Instagram:UseCover`), porque o Instagram muitas vezes não consegue buscar a imagem e recusa o Reel. Uma `referencia.png` nunca é usada como capa.
+- Instagram: vídeo acima de 90 MB sobe como uma cópia mais leve (H.264 até 6 Mbps, 30 qps), feita em `SYSTEM\cache\compact` e apagada depois de 3 dias (`Instagram:CompactAboveMb`, 0 desliga). O arquivo original não muda.
+- Vídeo em erro: o botão **Tentar de novo** refaz só as redes que falharam no envio; **Postar manual** leva o vídeo que já saiu em alguma rede para `07 - PENDENTE MANUAL`.
 - A legenda nunca é alterada pelo programa.
 - Vídeo vertical de até 3 minutos é publicado pelo YouTube como Short.
 - As pastas são publicadas em ordem numérica: `Video 2` antes de `Video 10`.

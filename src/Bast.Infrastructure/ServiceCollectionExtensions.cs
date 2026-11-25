@@ -39,6 +39,7 @@ public static class ServiceCollectionExtensions
 
         services.AddSingleton<ISecretStore, DpapiSecretStore>();
         services.AddSingleton<IPublicFileShare, CloudflaredFileShare>();
+        services.AddSingleton<IVideoCompactor, FfmpegVideoCompactor>();
         services.AddSingleton<AccountService>();
         services.AddSingleton<IConnectorRegistry, ConnectorRegistry>();
         services.AddSingleton<SchedulingService>();

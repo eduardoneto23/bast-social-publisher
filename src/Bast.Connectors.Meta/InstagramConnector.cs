@@ -18,6 +18,18 @@ public sealed class InstagramOptions
 
     /// <summary>Quando verdadeiro, o Reel também aparece no feed do perfil.</summary>
     public bool ShareToFeed { get; set; } = true;
+
+    /// <summary>
+    /// Envia a thumbnail como capa do Reel por um link temporário (túnel público). Desligado por padrão:
+    /// o Instagram muitas vezes não consegue buscar a imagem pelo túnel e recusa o Reel inteiro.
+    /// </summary>
+    public bool UseCover { get; set; }
+
+    /// <summary>
+    /// Acima deste tamanho (MB) vai uma cópia mais leve do vídeo: o servidor de upload da Meta recusa
+    /// arquivos grandes ("Request processing failed"). 0 desliga.
+    /// </summary>
+    public int CompactAboveMb { get; set; } = 90;
 }
 
 /// <summary>
@@ -30,12 +42,13 @@ public sealed class InstagramOptions
 /// contêiner até a Meta informar PUBLISHED, sem pedir de novo.
 /// </summary>
 /// <remarks>
-/// Capa: se a pasta tem a imagem da thumbnail, ela vai como capa do Reel (cover_url). A API só aceita a capa
+/// Capa (só com Instagram:UseCover ligado): se a pasta tem a imagem da thumbnail, ela vai como capa do Reel (cover_url). A API só aceita a capa
 /// por link público, então o sistema abre um link temporário para a imagem (<see cref="IPublicFileShare"/>)
 /// enquanto o Instagram processa o vídeo. Sem o link, o Reel sai com a capa automática. Se o Instagram não
 /// conseguir processar o Reel com a capa, o envio é refeito uma vez sem ela.
 /// </remarks>
-public sealed class InstagramConnector(IHttpClientFactory httpFactory, MetaAuth auth, IOptions<InstagramOptions> options, IPublicFileShare? files = null)
+public sealed class InstagramConnector(IHttpClientFactory httpFactory, MetaAuth auth, IOptions<InstagramOptions> options,
+    IPublicFileShare? files = null, IVideoCompactor? compactor = null)
     : MetaConnectorBase(httpFactory, auth), IPlatformConnector
 {
     internal const string Uploading = "container-uploading";
@@ -43,6 +56,7 @@ public sealed class InstagramConnector(IHttpClientFactory httpFactory, MetaAuth 
     internal const string Publishing = "container-publishing";
 
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan UploadRetryWait = TimeSpan.FromMinutes(10);
 
     /// <summary>Publicações cujo contêiner foi criado com capa (para refazer sem ela se o Instagram recusar).</summary>
     private readonly ConcurrentDictionary<Guid, bool> _withCover = new();
@@ -66,6 +80,8 @@ public sealed class InstagramConnector(IHttpClientFactory httpFactory, MetaAuth 
             if (stage == "" && containerId != "") return PublishOutcome.Published(containerId, null); // já publicado
 
             // Novo envio, ou upload anterior interrompido: um contêiner não publicado é descartável.
+            // Arquivo grande: a cópia leve é feita antes de criar o contêiner (ele expira se demorar).
+            var videoPath = await UploadPathAsync(request.VideoPath, ct);
             var fields = new List<(string Key, string Value)>
             {
                 ("media_type", "REELS"), ("upload_type", "resumable"), ("caption", request.Text),
@@ -86,8 +102,8 @@ public sealed class InstagramConnector(IHttpClientFactory httpFactory, MetaAuth 
             var uploadUrl = Graph.Text(create.Body, "uri") ?? $"{Graph.Upload}/ig-api-upload/{Graph.Version}/{containerId}";
             await request.SaveExternalIdAsync($"{Uploading}:{containerId}");
 
-            var size = new FileInfo(request.VideoPath).Length;
-            await using var file = new FileStream(request.VideoPath, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16, FileOptions.Asynchronous);
+            var size = new FileInfo(videoPath).Length;
+            await using var file = new FileStream(videoPath,FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16, FileOptions.Asynchronous);
             var content = new StreamContent(file);
             content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
             content.Headers.ContentLength = size;
@@ -98,7 +114,12 @@ public sealed class InstagramConnector(IHttpClientFactory httpFactory, MetaAuth 
             if (upload.Error is not null)
             {
                 await StopCoverAsync(request);
-                return await FailAsync(upload.Error, upload.Status, "O Instagram recusou o arquivo do Reel", ct);
+                var failed = await FailAsync(upload.Error, upload.Status, "O Instagram recusou o arquivo do Reel", ct);
+                // O servidor de upload da Meta às vezes falha ("Request processing failed") com o mesmo arquivo que
+                // depois passa. Nada fica visível antes do media_publish, então o envio é refeito num contêiner novo.
+                return failed.Kind == PublishOutcomeKind.Permanent
+                    ? PublishOutcome.Transient(failed.Error + " Nova tentativa em alguns minutos.", UploadRetryWait)
+                    : failed;
             }
 
             await request.SaveExternalIdAsync($"{Ready}:{containerId}");
@@ -209,10 +230,18 @@ public sealed class InstagramConnector(IHttpClientFactory httpFactory, MetaAuth 
         return PublishOutcome.Published(mediaId, permalink);
     }
 
+    /// <summary>Arquivo que sobe: o original, ou a cópia leve quando ele passa do limite e a cópia foi criada.</summary>
+    private async Task<string> UploadPathAsync(string videoPath, CancellationToken ct)
+    {
+        var limit = options.Value.CompactAboveMb;
+        if (compactor is null || limit <= 0 || new FileInfo(videoPath).Length <= limit * 1048576L) return videoPath;
+        return await compactor.CompactAsync(videoPath, ct) ?? videoPath;
+    }
+
     /// <summary>Abre o link temporário da capa. Nulo quando não há capa, ela já falhou ou o link não abriu.</summary>
     private async Task<string?> ShareCoverAsync(PublishRequest request, CancellationToken ct)
     {
-        if (files is null || request.ThumbnailPath is null || !File.Exists(request.ThumbnailPath)) return null;
+        if (!options.Value.UseCover || files is null || request.ThumbnailPath is null || !File.Exists(request.ThumbnailPath)) return null;
         if (_withoutCover.ContainsKey(request.PublicationId)) return null;
 
         var share = await files.ShareAsync(request.PublicationId, request.ThumbnailPath, ct);

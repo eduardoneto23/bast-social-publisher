@@ -92,6 +92,63 @@ public class ManualPendingTests
     }
 
     [Fact]
+    public async Task Retry_sends_again_only_the_networks_that_failed_while_sending()
+    {
+        using var h = new EngineHarness(Platform.YouTube, Platform.Instagram);
+        Assert.Empty(await h.Commands.UpdateSettingsAsync(new ScheduleSettingsInput("10:00", "23:59", 240, 10, Enum.GetValues<DayOfWeek>(),
+            "America/Sao_Paulo", [Platform.YouTube, Platform.Instagram], MissedSlotPolicy.NextAllowedSlot, 30, 5, ManualPosting: true), default));
+        await h.ImportAsync("Video 1");
+        await h.CycleAsync();
+        h.Connectors[Platform.Instagram].OnPublish = _ => PublishOutcome.Permanent("O Instagram recusou o arquivo do Reel");
+        h.SetTime(EngineHarness.Local(14, 10));
+        await h.CycleAsync();
+        await h.CycleAsync();
+        var video = h.Video("Video 1");
+        Assert.Equal(VideoState.Error, video.State);
+
+        h.Connectors[Platform.Instagram].OnPublish = r => PublishOutcome.Published("ig-1", null);
+        Assert.Equal(1, await h.Commands.RetryFailedAsync(video.Id, default));
+        Assert.Equal(VideoState.Ready, h.Video("Video 1").State);
+        // Horas depois, ainda sem ciclo (computador dormindo): a nova tentativa não é remarcada como horário perdido.
+        h.SetTime(EngineHarness.Local(14, 20));
+        await h.CycleAsync();
+        await h.CycleAsync();
+
+        video = h.Video("Video 1");
+        Assert.Equal(PublicationState.Published, h.Publication("Video 1", Platform.Instagram).State);
+        Assert.Single(h.Connectors[Platform.YouTube].PublishCalls);
+        Assert.Equal(VideoState.Published, video.State);
+        Assert.True(video.AwaitsManual);
+        Assert.Equal(0, await h.Commands.RetryFailedAsync(video.Id, default));
+    }
+
+    [Fact]
+    public async Task Error_video_already_out_somewhere_can_go_to_manual_pending()
+    {
+        using var h = new EngineHarness(Platform.YouTube, Platform.Instagram);
+        Assert.Empty(await h.Commands.UpdateSettingsAsync(new ScheduleSettingsInput("10:00", "23:59", 240, 10, Enum.GetValues<DayOfWeek>(),
+            "America/Sao_Paulo", [Platform.YouTube, Platform.Instagram], MissedSlotPolicy.NextAllowedSlot, 30, 5, ManualPosting: true), default));
+        await h.ImportAsync("Video 1");
+        await h.CycleAsync();
+        h.Connectors[Platform.Instagram].OnPublish = _ => PublishOutcome.Permanent("O Instagram recusou o arquivo do Reel");
+        h.SetTime(EngineHarness.Local(14, 10));
+        await h.CycleAsync();
+        await h.CycleAsync();
+        var video = h.Video("Video 1");
+        Assert.Equal(VideoState.Error, video.State);
+
+        Assert.True(await h.Commands.SendToManualAsync(video.Id, default));
+        await h.CycleAsync();
+
+        video = h.Video("Video 1");
+        Assert.Equal(VideoState.Published, video.State);
+        Assert.True(video.AwaitsManual);
+        Assert.Equal(WorkspaceFolder.ManualPending, video.CurrentFolder);
+        Assert.Equal(PublicationState.Cancelled, h.Publication("Video 1", Platform.Instagram).State);
+        Assert.False(await h.Commands.SendToManualAsync(video.Id, default));
+    }
+
+    [Fact]
     public async Task Published_vertical_waits_in_manual_pending_until_confirmed()
     {
         using var h = new EngineHarness(Platform.YouTube);

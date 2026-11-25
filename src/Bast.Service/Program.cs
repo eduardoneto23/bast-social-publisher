@@ -210,6 +210,25 @@ app.MapPost("/api/videos/{id:guid}/manual-done", async (Guid id, QueueCommands c
     };
 });
 
+// Vídeo em erro: refaz as redes que falharam no envio.
+app.MapPost("/api/videos/{id:guid}/retry", async (Guid id, QueueCommands commands, CancellationToken ct) =>
+{
+    var retried = await commands.RetryFailedAsync(id, ct);
+    return retried is null ? Results.NotFound() : Results.Ok(new { publications = retried.Value });
+});
+
+// Vídeo em erro que já saiu em alguma rede: vai para PENDENTE MANUAL para o usuário postar onde falhou.
+app.MapPost("/api/videos/{id:guid}/to-manual", async (Guid id, QueueCommands commands, CancellationToken ct) =>
+{
+    var moved = await commands.SendToManualAsync(id, ct);
+    return moved switch
+    {
+        null => Results.NotFound(),
+        true => Results.Ok(new { message = "O vídeo foi para 07 - PENDENTE MANUAL." }),
+        false => Results.BadRequest(new { problems = new[] { "Só vídeos em erro que já saíram em alguma rede vão para o envio manual." } }),
+    };
+});
+
 app.MapPost("/api/videos/{id:guid}/publish-now", async (Guid id, QueueCommands commands, CancellationToken ct) =>
 {
     var moved = await commands.PublishNowAsync(id, ct);
