@@ -56,7 +56,11 @@ public sealed class InstagramConnector(IHttpClientFactory httpFactory, MetaAuth 
     internal const string Publishing = "container-publishing";
 
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(60);
-    private static readonly TimeSpan UploadRetryWait = TimeSpan.FromMinutes(10);
+    /// <summary>Depois do aviso de erro no upload, quanto tempo o contêiner pode ficar em processamento.</summary>
+    private static readonly TimeSpan UploadErrorPatience = TimeSpan.FromMinutes(15);
+
+    /// <summary>Publicações cujo upload respondeu erro: quando e qual, para decidir pelo estado do contêiner.</summary>
+    private readonly ConcurrentDictionary<Guid, (DateTime At, string Message)> _uploadErrors = new();
 
     /// <summary>Publicações cujo contêiner foi criado com capa (para refazer sem ela se o Instagram recusar).</summary>
     private readonly ConcurrentDictionary<Guid, bool> _withCover = new();
@@ -113,13 +117,19 @@ public sealed class InstagramConnector(IHttpClientFactory httpFactory, MetaAuth 
             var upload = await SendAsync(HttpMethod.Post, uploadUrl, connection.PageToken, content, ct, scheme: "OAuth");
             if (upload.Error is not null)
             {
-                await StopCoverAsync(request);
                 var failed = await FailAsync(upload.Error, upload.Status, "O Instagram recusou o arquivo do Reel", ct);
-                // O servidor de upload da Meta às vezes falha ("Request processing failed") com o mesmo arquivo que
-                // depois passa. Nada fica visível antes do media_publish, então o envio é refeito num contêiner novo.
-                return failed.Kind == PublishOutcomeKind.Permanent
-                    ? PublishOutcome.Transient(failed.Error + " Nova tentativa em alguns minutos.", UploadRetryWait)
-                    : failed;
+                if (failed.Kind is PublishOutcomeKind.AuthRequired or PublishOutcomeKind.Transient)
+                {
+                    await StopCoverAsync(request);
+                    return failed;
+                }
+
+                // Vídeos a partir de uns 45 s: o servidor de upload responde "Request processing failed" (400) antes
+                // de terminar, mas o arquivo chegou e o contêiner segue para FINISHED. Quem decide é o contêiner:
+                // consultar o mesmo contêiner, sem criar outro (criar contêineres em série parece abuso para a Meta).
+                _uploadErrors[request.PublicationId] = (DateTime.UtcNow, upload.Error.Message);
+                await request.SaveExternalIdAsync($"{Ready}:{containerId}");
+                return PublishOutcome.Processing($"{Ready}:{containerId}", PollInterval);
             }
 
             await request.SaveExternalIdAsync($"{Ready}:{containerId}");
@@ -165,6 +175,23 @@ public sealed class InstagramConnector(IHttpClientFactory httpFactory, MetaAuth 
         var statusCode = Graph.Text(response.Body, "status_code");
         // Fora de IN_PROGRESS o Instagram já buscou a capa: o link temporário pode fechar.
         if (statusCode != "IN_PROGRESS") await StopCoverAsync(request);
+
+        var uploadError = _uploadErrors.TryGetValue(request.PublicationId, out var noted) ? noted : default((DateTime At, string Message)?);
+        if (statusCode != "IN_PROGRESS") _uploadErrors.TryRemove(request.PublicationId, out _);
+
+        if (uploadError is { } error && statusCode == "IN_PROGRESS" && DateTime.UtcNow - error.At > UploadErrorPatience)
+        {
+            // Upload com erro e o contêiner parado: o arquivo não chegou. Para aqui, sem criar outro contêiner.
+            _uploadErrors.TryRemove(request.PublicationId, out _);
+            return PublishOutcome.Permanent(
+                $"O Instagram recusou o arquivo do Reel ({error.Message}) e não terminou de processar em {UploadErrorPatience.TotalMinutes:0} min.");
+        }
+
+        if (uploadError is { } failedUpload && statusCode is "ERROR" or "EXPIRED")
+        {
+            return PublishOutcome.Permanent(
+                $"O Instagram recusou o arquivo do Reel ({failedUpload.Message}); contêiner {statusCode}: {Graph.Text(response.Body, "status") ?? "motivo não informado"}.");
+        }
 
         switch (statusCode)
         {

@@ -588,15 +588,37 @@ public class InstagramConnectorTests
             }
             : null;
 
-        var failed = await h.Instagram.PublishAsync(h.Request(), default);
-        Assert.Equal(PublishOutcomeKind.Transient, failed.Kind);
-        Assert.Equal(TimeSpan.FromMinutes(10), failed.RetryAfter);
-        Assert.Contains("Request processing failed", failed.Error);
+        // O upload responde 400, mas quem decide é o contêiner: nada de contêiner novo.
+        var sent = await h.Instagram.PublishAsync(h.Request(), default);
+        Assert.Equal(PublishOutcomeKind.Processing, sent.Kind);
+        Assert.Equal("container:c1", h.SavedIds.Last());
+        Assert.Equal(0, h.Meta.MediaPublishCalls);
 
         h.Meta.Intercept = null;
-        var second = await h.Instagram.PublishAsync(h.Request(), default);
-        Assert.Equal(PublishOutcomeKind.Processing, second.Kind);
-        Assert.Equal("container:c2", h.SavedIds.Last());
+        h.Meta.ContainerStatus = "FINISHED";
+        var published = await h.Instagram.CheckAsync(h.Request(), default);
+        Assert.Equal(PublishOutcomeKind.Published, published.Kind);
+        Assert.Equal(1, h.Meta.MediaPublishCalls);
+        Assert.False(h.Meta.ContainerUploads.ContainsKey("c2"));
+    }
+
+    [Fact]
+    public async Task Upload_error_followed_by_container_error_is_a_permanent_failure()
+    {
+        using var h = new MetaHarness();
+        h.Meta.Intercept = r => r.RequestUri!.AbsolutePath.Contains("/ig-api-upload/")
+            ? new HttpResponseMessage(System.Net.HttpStatusCode.BadRequest)
+            {
+                Content = new StringContent("""{"debug_info":{"retriable":false,"type":"ProcessingFailedError","message":"Request processing failed"}}"""),
+            }
+            : null;
+        await h.Instagram.PublishAsync(h.Request(), default);
+
+        h.Meta.ContainerStatus = "ERROR";
+        var outcome = await h.Instagram.CheckAsync(h.Request(), default);
+
+        Assert.Equal(PublishOutcomeKind.Permanent, outcome.Kind);
+        Assert.Contains("Request processing failed", outcome.Error);
         Assert.Equal(0, h.Meta.MediaPublishCalls);
     }
 
