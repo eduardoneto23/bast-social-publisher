@@ -44,10 +44,10 @@ function Resolve-Tool([string]$Given, [string]$SettingName, [string]$Command) {
 }
 
 # Filas: horizontal (00 - THUMB -> 01 - ENVIAR YOUTUBE, thumbnail PNG 1280x720) e vertical
-# (00 - THUMB VERTICAL -> 01 - ENVIAR VERTICAL: só a legenda; a capa é opcional e não é criada pela tarefa).
+# (00 - THUMB VERTICAL -> 01 - ENVIAR VERTICAL, capa JPG 1080x1920). As duas filas precisam de legenda e imagem.
 function Get-Lane([switch]$Vertical) {
     if ($Vertical) {
-        return [pscustomobject]@{ Name = 'vertical'; Source = '00 - THUMB VERTICAL'; Target = '01 - ENVIAR VERTICAL'; Width = 1080; Height = 1920; File = 'thumbnail.jpg'; Codec = 'mjpeg'; NeedsThumbnail = $false }
+        return [pscustomobject]@{ Name = 'vertical'; Source = '00 - THUMB VERTICAL'; Target = '01 - ENVIAR VERTICAL'; Width = 1080; Height = 1920; File = 'thumbnail.jpg'; Codec = 'mjpeg'; NeedsThumbnail = $true }
     }
     return [pscustomobject]@{ Name = 'horizontal'; Source = '00 - THUMB'; Target = '01 - ENVIAR YOUTUBE'; Width = 1280; Height = 720; File = 'thumbnail.png'; Codec = 'png'; NeedsThumbnail = $true }
 }

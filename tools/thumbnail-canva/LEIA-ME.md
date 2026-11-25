@@ -21,17 +21,22 @@ O modelo original nunca é alterado: cada vídeo ganha uma cópia chamada "BAST 
 
 ## Vídeos verticais (Reels e Shorts)
 
-Os verticais têm uma fila separada, que hoje cria **só a legenda** (a capa está desativada):
+A mesma automação vale para os verticais, numa fila separada:
 
 ```
-00 - THUMB VERTICAL/    você coloca aqui: o vídeo
-   (legenda.txt criado: título, descrição curta, "Siga o Bast" e 5 hashtags)
-01 - ENVIAR VERTICAL/   a pasta chega aqui e o BAST agenda nos horários dos verticais
+00 - THUMB VERTICAL/    você coloca aqui: o vídeo (+ legenda.txt, se quiser)
+   (legenda e capa criadas)
+01 - ENVIAR VERTICAL/   a pasta chega aqui com legenda.txt e thumbnail.jpg e o BAST agenda nos horários dos verticais
 ```
 
-- **Legenda:** as mesmas regras de título e hashtags, com no máximo 500 caracteres no total.
-- **Capa:** não é criada. Se você puser uma imagem `thumbnail.jpg` na pasta, ela vai junto: o serviço a usa como capa no YouTube Shorts e, quando a Meta estiver ligada, no Instagram e no Facebook. Os scripts `recorte.ps1 -Fundo -Vertical`, `salvar-thumb.ps1` e o modelo "BAST - Modelo Capa Vertical" continuam prontos para quando a capa for religada.
-- Os scripts aceitam `-Vertical` (`pendentes.ps1`, `mover-para-youtube.ps1`); `salvar-legenda.ps1` e `salvar-thumb.ps1` descobrem a fila pela pasta. Nos verticais, a pasta está completa com vídeo e legenda.
+- **Capa:** 1080x1920 em JPG, montada como colagem na cópia do "BAST - Modelo Capa Vertical" (`recorte.ps1 -Fundo -Vertical` para o fundo).
+- **Onde a capa aparece:** YouTube Shorts (thumbnail) e Facebook (thumbnail preferida do Reel). No Instagram o Reel sai com a capa automática enquanto `Instagram:UseCover` estiver desligado.
+- **Legenda:** as mesmas regras, com no máximo 500 caracteres no total.
+- Os scripts aceitam `-Vertical` (`pendentes.ps1`, `mover-para-youtube.ps1`); `salvar-legenda.ps1` e `salvar-thumb.ps1` descobrem a fila pela pasta.
+
+## Sem sangue nas thumbnails
+
+Nenhuma thumbnail ou capa leva sangue aparente (poças, respingos, ferimentos, corpos ensanguentados, tela vermelha de dano): YouTube e Meta limitam a entrega de imagens violentas. Ação, armas, polícia e batidas podem. A tarefa descarta os quadros com sangue, recorta para deixá-lo de fora quando é só um canto, ou escolhe outro momento; nunca tapa com caixa preta ou borrão.
 ## Legenda automática
 
 Se a pasta tiver só o vídeo, o nome do arquivo vira o título de trabalho (ex.: `gta vi o inicio.mp4`; se o nome for genérico, como `video.mp4`, vale o nome da pasta) e a tarefa cria o `legenda.txt`:
