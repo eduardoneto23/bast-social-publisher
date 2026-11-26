@@ -1,0 +1,11 @@
+# Ambiente Python da produção (instalado por scripts\instalar-producao.ps1).
+# O torch com CUDA é instalado antes, direto do índice do PyTorch (o do PyPI é só CPU).
+numpy
+transformers
+faster-whisper
+# OpenCV 5 tirou o detector Haar (CascadeClassifier) usado na presença da webcam.
+opencv-python-headless<5
+nudenet
+# Bibliotecas CUDA 12 para o CTranslate2 (Whisper na placa de vídeo).
+nvidia-cublas-cu12
+nvidia-cudnn-cu12

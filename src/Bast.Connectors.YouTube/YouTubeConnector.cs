@@ -403,6 +403,7 @@ public static class YouTubeServiceCollectionExtensions
         services.AddSingleton<GoogleAuth>();
         services.AddSingleton<YouTubeConnector>();
         services.AddSingleton<IPlatformConnector>(sp => sp.GetRequiredService<YouTubeConnector>());
+        services.AddSingleton<Bast.Application.Radar.IYouTubeResearch, YouTubeResearch>();
         return services;
     }
 }

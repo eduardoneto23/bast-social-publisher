@@ -201,3 +201,12 @@ footer { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wr
 .delivery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; margin-top: 6px; }
 .delivery { border: 1px solid var(--border); border-radius: var(--radius); padding: 8px; background: var(--surface-2); display: grid; gap: 4px; align-content: start; }
 .delivery-media { width: 100%; max-height: 420px; object-fit: contain; border-radius: 6px; background: #000; display: block; }
+/* Radar de Conteúdo e Estúdio */
+.radar-card .top-actions { flex-wrap: wrap; }
+.radar-card.open { background: var(--surface-2); border-radius: var(--radius); padding: 10px; }
+.radar-detail { display: grid; gap: 8px; margin-top: 10px; }
+.plan-item { border-left: 3px solid var(--accent); padding-left: 10px; }
+.plan-list { margin: 4px 0 0; padding-left: 18px; display: grid; gap: 3px; }
+.plan-list a { overflow-wrap: anywhere; }
+.radar-filters { margin-top: 4px; }
+.tag-form { border: 1px solid var(--border); border-radius: var(--radius); padding: 10px; margin-top: 10px; display: grid; gap: 8px; }

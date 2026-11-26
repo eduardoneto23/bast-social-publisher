@@ -17,6 +17,12 @@ public sealed class BastDbContext(DbContextOptions<BastDbContext> options) : DbC
     public DbSet<ProductionStep> ProductionSteps => Set<ProductionStep>();
     public DbSet<ProductionLog> ProductionLogs => Set<ProductionLog>();
     public DbSet<ProductionControl> ProductionControl => Set<ProductionControl>();
+    public DbSet<RadarTag> RadarTags => Set<RadarTag>();
+    public DbSet<RadarRun> RadarRuns => Set<RadarRun>();
+    public DbSet<RadarSuggestion> RadarSuggestions => Set<RadarSuggestion>();
+    public DbSet<RadarSettings> RadarSettings => Set<RadarSettings>();
+    public DbSet<RadarVideoSnapshot> RadarVideoSnapshots => Set<RadarVideoSnapshot>();
+    public DbSet<StudioProduction> StudioProductions => Set<StudioProduction>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -116,6 +122,58 @@ public sealed class BastDbContext(DbContextOptions<BastDbContext> options) : DbC
             e.HasKey(l => l.Id);
             e.Property(l => l.Level).HasConversion<string>().HasMaxLength(10);
             e.HasIndex(l => new { l.JobId, l.AtUtc });
+        });
+
+        modelBuilder.Entity<RadarTag>(e =>
+        {
+            e.ToTable("radar_tags");
+            e.HasKey(t => t.Id);
+            e.Property(t => t.Name).HasMaxLength(80);
+            e.HasIndex(t => t.Name).IsUnique();
+            e.Ignore(t => t.AllNames);
+        });
+
+        modelBuilder.Entity<RadarRun>(e =>
+        {
+            e.ToTable("radar_runs");
+            e.HasKey(r => r.Id);
+            e.Property(r => r.Status).HasConversion<string>().HasMaxLength(20);
+            e.HasIndex(r => r.StartedAtUtc);
+        });
+
+        modelBuilder.Entity<RadarSuggestion>(e =>
+        {
+            e.ToTable("radar_suggestions");
+            e.HasKey(s => s.Id);
+            e.Property(s => s.Format).HasConversion<string>().HasMaxLength(20);
+            e.Property(s => s.Status).HasConversion<string>().HasMaxLength(20);
+            e.HasOne<RadarRun>().WithMany(r => r.Suggestions).HasForeignKey(s => s.RunId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(s => new { s.RunId, s.Format, s.Rank });
+            e.HasIndex(s => s.TagId);
+        });
+
+        modelBuilder.Entity<RadarSettings>(e =>
+        {
+            e.ToTable("radar_settings");
+            e.HasKey(s => s.Id);
+            e.Property(s => s.Id).ValueGeneratedNever();
+        });
+
+        modelBuilder.Entity<RadarVideoSnapshot>(e =>
+        {
+            e.ToTable("radar_video_snapshots");
+            e.HasKey(v => v.Id);
+            e.HasIndex(v => new { v.VideoId, v.AtUtc });
+        });
+
+        modelBuilder.Entity<StudioProduction>(e =>
+        {
+            e.ToTable("studio_productions");
+            e.HasKey(p => p.Id);
+            e.Property(p => p.Format).HasConversion<string>().HasMaxLength(20);
+            e.Property(p => p.Status).HasConversion<string>().HasMaxLength(30);
+            e.HasIndex(p => p.Code).IsUnique();
+            e.HasIndex(p => p.SuggestionId);
         });
 
         modelBuilder.Entity<ProductionControl>(e =>

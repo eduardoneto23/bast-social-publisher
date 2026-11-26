@@ -21,6 +21,27 @@ public sealed class ProductionRunner(
 {
     public const int MaxStepAttempts = 3;
     private static readonly TimeSpan RetryDelay = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan ProgressInterval = TimeSpan.FromSeconds(5);
+
+    /// <summary>Grava o progresso e o registro acumulado de uma etapa em andamento.</summary>
+    private async Task FlushAsync(Guid jobId, string stepName, int progress,
+        System.Collections.Concurrent.ConcurrentQueue<(ProductionLogLevel Level, string Message, string? Program, string? File, DateTime At)> logs)
+    {
+        try
+        {
+            await using var db = await factory.CreateDbContextAsync(CancellationToken.None);
+            var job = await db.ProductionJobs.FirstOrDefaultAsync(j => j.Id == jobId, CancellationToken.None);
+            if (job is null) return;
+            job.Progress = progress;
+            job.UpdatedAtUtc = Now;
+            while (logs.TryDequeue(out var entry)) ProductionJournal.Add(db, jobId, entry.At, entry.Level, stepName, entry.Message, entry.Program, entry.File);
+            await db.SaveChangesAsync(CancellationToken.None);
+        }
+        catch (Exception ex) when (ex is DbUpdateException or InvalidOperationException)
+        {
+            logger.LogWarning("Produção: não foi possível gravar o progresso ({Type}); tenta no próximo intervalo.", ex.GetType().Name);
+        }
+    }
 
     private readonly object _gate = new();
     private CancellationTokenSource? _running;
@@ -153,8 +174,8 @@ public sealed class ProductionRunner(
             workFolder = folder;
         }
 
-        var logs = new List<(ProductionLogLevel Level, string Message, string? Program, string? File, DateTime At)>();
-        var context = new StepContext(job, workFolder, (level, message, program, file) => logs.Add((level, message, program, file, Now)));
+        var logs = new System.Collections.Concurrent.ConcurrentQueue<(ProductionLogLevel Level, string Message, string? Program, string? File, DateTime At)>();
+        var context = new StepContext(job, workFolder, (level, message, program, file) => logs.Enqueue((level, message, program, file, Now)));
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         lock (_gate)
@@ -169,7 +190,14 @@ public sealed class ProductionRunner(
         var interrupted = false;
         try
         {
-            output = await implementation.RunAsync(context, cts.Token);
+            // Etapas longas: progresso e registro vão para o painel a cada poucos segundos, não só no fim.
+            var work = implementation.RunAsync(context, cts.Token);
+            while (await Task.WhenAny(work, Task.Delay(ProgressInterval, ct)) != work)
+            {
+                await FlushAsync(job.Id, step.Name, context.Progress, logs);
+            }
+
+            output = await work;
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
@@ -198,7 +226,7 @@ public sealed class ProductionRunner(
             var saved = await db.ProductionJobs.Include(j => j.Steps).FirstAsync(j => j.Id == job.Id, CancellationToken.None);
             var savedStep = saved.Steps.First(s => s.Id == step.Id);
             var now = Now;
-            foreach (var entry in logs) ProductionJournal.Add(db, saved.Id, entry.At, entry.Level, step.Name, entry.Message, entry.Program, entry.File);
+            while (logs.TryDequeue(out var entry)) ProductionJournal.Add(db, saved.Id, entry.At, entry.Level, step.Name, entry.Message, entry.Program, entry.File);
 
             savedStep.FinishedAtUtc = now;
             saved.UpdatedAtUtc = now;

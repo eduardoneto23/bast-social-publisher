@@ -7,6 +7,12 @@
     <ProjectReference Include="..\Bast.Notifications.Telegram\Bast.Notifications.Telegram.csproj" />
   </ItemGroup>
 
+  <!-- Scripts da produção ao lado do serviço (pasta "producao"): o serviço não depende do repositório para rodar. -->
+  <ItemGroup>
+    <None Include="..\..\tools\producao\*.py" LinkBase="producao" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\..\tools\producao\perfis\*.json" LinkBase="producao\perfis" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="$(ExtensionsVersion)" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="$(EfVersion)">

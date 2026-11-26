@@ -49,11 +49,17 @@ public static class ServiceCollectionExtensions
 
         // Produção: gravações do OBS em 00 - GRAVACOES viram jobs com etapas.
         services.AddSingleton<Bast.Application.Production.IDiskSpace, Bast.Application.Production.DriveDiskSpace>();
+        services.AddSingleton<Bast.Application.Production.IProductionTools, ProductionToolset>();
         services.AddSingleton<Bast.Application.Production.IProductionStep, Bast.Application.Production.IntegrityStep>();
+        services.AddSingleton<Bast.Application.Production.IProductionStep, Bast.Application.Production.MediaAnalysisStep>();
         services.AddSingleton<Bast.Application.Production.ProductionPipeline>();
         services.AddSingleton<Bast.Application.Production.RecordingScanner>();
         services.AddSingleton<Bast.Application.Production.ProductionRunner>();
         services.AddSingleton<Bast.Application.Production.ProductionCommands>();
+
+        // Radar de Conteúdo e Estúdio de Ideias (fluxo separado das lives).
+        services.AddSingleton<Bast.Application.Radar.RadarService>();
+        services.AddSingleton<Bast.Application.Radar.StudioService>();
         return services;
     }
 }

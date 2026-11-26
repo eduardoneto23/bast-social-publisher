@@ -562,6 +562,168 @@ app.MapGet("/api/production/jobs/{id:guid}/file", async (Guid id, string path, I
     return Results.File(full, ProductionFiles.ContentType(Path.GetExtension(full)), enableRangeProcessing: true);
 });
 
+// ---------- Radar de Conteúdo e Estúdio de Ideias ----------
+
+app.MapGet("/api/radar", async (IDbContextFactory<BastDbContext> factory, Bast.Application.Radar.RadarService radar,
+    Bast.Application.Radar.StudioService studio, SchedulingService scheduling, Bast.Application.Radar.IYouTubeResearch youtube, CancellationToken ct) =>
+{
+    var tz = (await scheduling.GetSettingsAsync(ct)).TimeZoneId;
+    var due = await radar.DueAsync(tz, ct);
+    await using var db = await factory.CreateDbContextAsync(ct);
+    var settings = await db.RadarSettings.AsNoTracking().FirstAsync(s => s.Id == 1, ct);
+    var tags = await db.RadarTags.AsNoTracking().OrderBy(t => t.Name).ToListAsync(ct);
+    var runs = await db.RadarRuns.AsNoTracking().OrderByDescending(r => r.StartedAtUtc).Take(30).ToListAsync(ct);
+    var lastDone = runs.FirstOrDefault(r => r.Status is RadarRunStatus.Completed or RadarRunStatus.Partial);
+    var suggestions = lastDone is null ? [] : await db.RadarSuggestions.AsNoTracking().Where(s => s.RunId == lastDone.Id)
+        .OrderBy(s => s.Format).ThenBy(s => s.TagName).ThenBy(s => s.Rank).ToListAsync(ct);
+    var saved = await db.RadarSuggestions.AsNoTracking().Where(s => s.Status == RadarSuggestionStatus.Saved)
+        .OrderByDescending(s => s.SavedAtUtc).Take(50).ToListAsync(ct);
+    var productions = await db.StudioProductions.AsNoTracking().OrderByDescending(p => p.CreatedAtUtc).Take(50).ToListAsync(ct);
+    var counts = await db.RadarSuggestions.AsNoTracking().GroupBy(s => s.TagName).Select(g => new { tag = g.Key, total = g.Count() }).ToListAsync(ct);
+    return Results.Ok(new
+    {
+        settings = new { settings.DailyTime, settings.YouTubeSearchBudget, settings.ManualRequestedAtUtc, timeZone = tz },
+        due = new { due.Due, due.Reason, due.SearchesLeft },
+        youtubeConnected = youtube.IsAvailable,
+        studio = new { enabled = studio.Enabled, folder = studio.Enabled ? studio.Stage(0) : null },
+        tags = tags.Select(t => new { t.Id, t.Name, t.Synonyms, t.IncludeTerms, t.ExcludeTerms, t.Active, names = t.AllNames,
+            suggestions = counts.FirstOrDefault(c => c.tag == t.Name)?.total ?? 0 }),
+        latest = lastDone is null ? null : new { lastDone.Id, lastDone.StartedAtUtc, lastDone.FinishedAtUtc, lastDone.Status, lastDone.Summary, lastDone.Shortfall },
+        runs = runs.Select(r => new { r.Id, r.StartedAtUtc, r.FinishedAtUtc, r.Status, r.Trigger, r.Error, r.Shortfall }),
+        suggestions = suggestions.Select(RadarView.Suggestion),
+        saved = saved.Select(RadarView.Suggestion),
+        productions = productions.Select(p => new { p.Id, p.Code, p.Title, p.TagName, p.Format, p.Status, p.StatusDetail, p.Folder,
+            p.FolderName, p.MissingScenes, files = RadarView.Parse(p.FilesJson), p.RecordingFinishedAtUtc, p.ReleasedAtUtc, p.CreatedAtUtc, p.UpdatedAtUtc }),
+    });
+});
+
+app.MapGet("/api/radar/runs/{id:guid}", async (Guid id, IDbContextFactory<BastDbContext> factory, CancellationToken ct) =>
+{
+    await using var db = await factory.CreateDbContextAsync(ct);
+    var run = await db.RadarRuns.AsNoTracking().Include(r => r.Suggestions).FirstOrDefaultAsync(r => r.Id == id, ct);
+    return run is null ? Results.NotFound() : Results.Ok(new
+    {
+        run.Id, run.StartedAtUtc, run.FinishedAtUtc, run.Status, run.Summary, run.Error, run.Shortfall,
+        suggestions = run.Suggestions.OrderBy(s => s.Format).ThenBy(s => s.Rank).Select(RadarView.Suggestion),
+    });
+});
+
+// Usado pela tarefa agendada do Claude: está na hora? quais tags? quantas buscas restam?
+app.MapGet("/api/radar/due", async (Bast.Application.Radar.RadarService radar, SchedulingService scheduling, CancellationToken ct) =>
+    Results.Ok(await radar.DueAsync((await scheduling.GetSettingsAsync(ct)).TimeZoneId, ct)));
+
+app.MapPost("/api/radar/runs/begin", async (RadarBeginInput? input, Bast.Application.Radar.RadarService radar, CancellationToken ct) =>
+{
+    var run = await radar.BeginRunAsync(string.IsNullOrWhiteSpace(input?.Trigger) ? "agendada" : input!.Trigger!, ct);
+    return Results.Ok(new { run.Id, run.StartedAtUtc });
+});
+
+app.MapPost("/api/radar/runs/{id:guid}/submit", async (Guid id, Bast.Application.Radar.RadarRunInput input, Bast.Application.Radar.RadarService radar, CancellationToken ct) =>
+{
+    var (run, rejected) = await radar.SubmitRunAsync(id, input, ct);
+    return run is null
+        ? Results.BadRequest(new { problems = rejected })
+        : Results.Ok(new { run.Id, run.Status, run.Shortfall, run.Error, rejected });
+});
+
+app.MapPost("/api/radar/runs/{id:guid}/fail", async (Guid id, RadarFailInput input, Bast.Application.Radar.RadarService radar, CancellationToken ct) =>
+    await radar.FailRunAsync(id, input.Error ?? "", ct) is null ? Results.NotFound() : Results.Ok(new { message = "Falha registrada e avisada." }));
+
+app.MapPost("/api/radar/refresh", async (Bast.Application.Radar.RadarService radar, CancellationToken ct) =>
+{
+    await radar.RequestManualAsync(ct);
+    return Results.Ok(new { message = "Pesquisa pedida. A tarefa do Claude atende no próximo ciclo (até 30 min, com o app aberto)." });
+});
+
+app.MapPut("/api/radar/settings", async (RadarSettingsInput input, Bast.Application.Radar.RadarService radar, CancellationToken ct) =>
+{
+    var problems = await radar.UpdateSettingsAsync(input.DailyTime, input.YouTubeSearchBudget, ct);
+    return problems.Count == 0 ? Results.Ok(new { message = "Configuração do Radar salva." }) : Results.BadRequest(new { problems });
+});
+
+app.MapPost("/api/radar/tags", async (Bast.Application.Radar.RadarTagInput input, Bast.Application.Radar.RadarService radar, CancellationToken ct) =>
+{
+    var (tag, problems) = await radar.SaveTagAsync(null, input, ct);
+    return tag is null ? Results.BadRequest(new { problems }) : Results.Ok(new { tag.Id, message = $"Tag {tag.Name} criada." });
+});
+
+app.MapPut("/api/radar/tags/{id:guid}", async (Guid id, Bast.Application.Radar.RadarTagInput input, Bast.Application.Radar.RadarService radar, CancellationToken ct) =>
+{
+    var (tag, problems) = await radar.SaveTagAsync(id, input, ct);
+    return tag is null ? Results.BadRequest(new { problems }) : Results.Ok(new { tag.Id, message = $"Tag {tag.Name} salva." });
+});
+
+app.MapDelete("/api/radar/tags/{id:guid}", async (Guid id, Bast.Application.Radar.RadarService radar, CancellationToken ct) =>
+    await radar.DeleteTagAsync(id, ct) ? Results.Ok(new { message = "Tag excluída. O histórico de sugestões continua." }) : Results.NotFound());
+
+// Busca no YouTube com métricas oficiais; cada consulta é guardada para medir o crescimento na próxima.
+app.MapGet("/api/radar/youtube", async (string q, string? lang, string? region, int? days, int? max,
+    Bast.Application.Radar.IYouTubeResearch youtube, Bast.Application.Radar.RadarService radar, SchedulingService scheduling,
+    IDbContextFactory<BastDbContext> factory, CancellationToken ct) =>
+{
+    if (!youtube.IsAvailable) return Results.BadRequest(new { problems = new[] { "O YouTube não está conectado." } });
+    if (!await radar.TakeSearchAsync((await scheduling.GetSettingsAsync(ct)).TimeZoneId, ct))
+    {
+        return Results.BadRequest(new { problems = new[] { "Orçamento diário de buscas no YouTube esgotado (a cota é compartilhada com os envios)." } });
+    }
+
+    IReadOnlyList<Bast.Application.Radar.RadarVideo> videos;
+    try
+    {
+        videos = await youtube.SearchAsync(q, lang ?? "en", region ?? "US", days ?? 7, max ?? 15, ct);
+    }
+    catch (Bast.Application.Radar.YouTubeResearchException ex)
+    {
+        return Results.BadRequest(new { problems = new[] { ex.Message } });
+    }
+
+    await using var db = await factory.CreateDbContextAsync(ct);
+    var ids = videos.Select(v => v.VideoId).ToList();
+    var previous = (await db.RadarVideoSnapshots.AsNoTracking().Where(s => ids.Contains(s.VideoId)).ToListAsync(ct))
+        .GroupBy(s => s.VideoId).ToDictionary(g => g.Key, g => g.OrderByDescending(s => s.AtUtc).First());
+    var enriched = videos.Select(v =>
+    {
+        if (previous.TryGetValue(v.VideoId, out var before) && before.Views is { } bv && v.Views is { } nv && v.ConsultedAtUtc > before.AtUtc)
+        {
+            var hours = Math.Max(0.25, (v.ConsultedAtUtc - before.AtUtc).TotalHours);
+            return v with { RecentViewsPerHour = Math.Round((nv - bv) / hours, 1) };
+        }
+
+        return v;
+    }).ToList();
+    db.RadarVideoSnapshots.AddRange(videos.Select(v => new RadarVideoSnapshot { VideoId = v.VideoId, AtUtc = v.ConsultedAtUtc, Views = v.Views, Likes = v.Likes, Comments = v.Comments }));
+    await db.SaveChangesAsync(ct);
+    return Results.Ok(enriched);
+});
+
+app.MapPost("/api/radar/suggestions/{id:guid}/{action}", async (Guid id, string action, Bast.Application.Radar.RadarService radar,
+    Bast.Application.Radar.StudioService studio, SchedulingService scheduling, CancellationToken ct) =>
+{
+    switch (action)
+    {
+        case "save":
+        case "ignore":
+            var (found, message) = await radar.SetSuggestionStatusAsync(id, action == "save" ? RadarSuggestionStatus.Saved : RadarSuggestionStatus.Ignored, ct);
+            return found ? Results.Ok(new { message }) : Results.NotFound();
+        case "start":
+            var (production, text) = await studio.StartAsync(id, (await scheduling.GetSettingsAsync(ct)).TimeZoneId, ct);
+            return production is null ? Results.BadRequest(new { problems = new[] { text } }) : Results.Ok(new { production.Id, production.Code, production.Folder, message = text });
+        default:
+            return Results.NotFound();
+    }
+});
+
+app.MapPost("/api/studio/{id:guid}/{action}", async (Guid id, string action, Bast.Application.Radar.StudioService studio, CancellationToken ct) =>
+{
+    var (found, message) = action switch
+    {
+        "finished" => await studio.MarkRecordingFinishedAsync(id, ct),
+        "release" => await studio.ReleaseAsync(id, ct),
+        _ => (false, ""),
+    };
+    return found ? Results.Ok(new { message }) : Results.NotFound();
+});
+
 // Botão de emergência: nenhuma etapa nova começa e a atual é interrompida. Nada é apagado.
 app.MapPost("/api/production/stop", async (StopInput? input, Bast.Application.Production.ProductionCommands commands, CancellationToken ct) =>
     Results.Ok(new { message = await commands.EmergencyStopAsync(input?.Reason, ct) }));
@@ -620,3 +782,22 @@ public sealed record ThreadsCodeInput(string RedirectedUrl);
 public sealed record TelegramTokenInput(string Token);
 public sealed record TelegramLinkInput(string Code);
 public sealed record StopInput(string? Reason);
+public sealed record RadarBeginInput(string? Trigger);
+public sealed record RadarFailInput(string? Error);
+public sealed record RadarSettingsInput(string DailyTime, int YouTubeSearchBudget);
+
+static class RadarView
+{
+    public static System.Text.Json.Nodes.JsonNode? Parse(string json)
+    {
+        try { return System.Text.Json.Nodes.JsonNode.Parse(json); }
+        catch (System.Text.Json.JsonException) { return null; }
+    }
+
+    public static object Suggestion(RadarSuggestion s) => new
+    {
+        s.Id, shortId = s.Id.ToString("N")[..8], s.RunId, s.TagName, s.Format, s.Rank, s.Title, s.Category, s.Market, s.Opportunity,
+        s.DiscoveredAtUtc, s.Status, s.StudioProductionId,
+        sources = Parse(s.SourcesJson), analysis = Parse(s.AnalysisJson), plan = Parse(s.PlanJson),
+    };
+}

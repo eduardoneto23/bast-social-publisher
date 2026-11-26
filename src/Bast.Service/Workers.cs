@@ -150,14 +150,28 @@ public sealed class TelegramButtonsWorker(Bast.Notifications.Telegram.TelegramBo
 /// Varredura e etapas correm em laços separados: uma etapa longa (render) não atrasa a detecção de gravações.
 /// </summary>
 public sealed class ProductionWorker(Bast.Application.Production.RecordingScanner scanner, Bast.Application.Production.ProductionRunner runner,
+    Bast.Application.Radar.RadarService radar, Bast.Application.Radar.StudioService studio,
     BastOptions options, ILogger<ProductionWorker> logger) : BackgroundService
 {
-    protected override Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var interval = TimeSpan.FromSeconds(Math.Max(5, options.ProductionIntervalSeconds));
-        return Task.WhenAll(
+        try
+        {
+            await radar.EnsureDefaultsAsync(stoppingToken);
+            studio.EnsureFolders();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogError(ex, "Radar/Estúdio: falha ao preparar tags e pastas.");
+        }
+
+        await Task.WhenAll(
             LoopAsync("varredura de gravações", async ct => { await scanner.ScanAsync(ct); return false; }, interval, stoppingToken),
-            LoopAsync("etapas de produção", runner.RunCycleAsync, interval, stoppingToken));
+            LoopAsync("etapas de produção", runner.RunCycleAsync, interval, stoppingToken),
+            // Fluxo separado: gravações do Estúdio de Ideias e pesquisas do Radar que travaram.
+            LoopAsync("estúdio de ideias", async ct => { await studio.ScanAsync(ct); await radar.ExpireStaleRunsAsync(ct); return false; },
+                TimeSpan.FromSeconds(30), stoppingToken));
     }
 
     private async Task LoopAsync(string what, Func<CancellationToken, Task<bool>> cycle, TimeSpan interval, CancellationToken stoppingToken)

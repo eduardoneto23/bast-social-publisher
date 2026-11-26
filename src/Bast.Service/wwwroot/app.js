@@ -221,12 +221,12 @@ function derive(data) {
 
 async function refresh() {
   try {
-    const [health, queue, issues, accounts, schedule, telegram, notifications, production] = await Promise.all([
+    const [health, queue, issues, accounts, schedule, telegram, notifications, production, radar] = await Promise.all([
       api('/api/health'), api('/api/queue'), api('/api/import-issues'), api('/api/accounts'),
       api('/api/settings/schedule'), api('/api/connect/telegram/status'), api('/api/notifications'),
-      api('/api/production'),
+      api('/api/production'), api('/api/radar'),
     ]);
-    state.data = { health, queue, issues, accounts, schedule, telegram, notifications, production };
+    state.data = { health, queue, issues, accounts, schedule, telegram, notifications, production, radar };
     if (state.openLogs) {
       await Promise.all(Object.keys(state.openLogs).map(async id => {
         try { state.openLogs[id] = await api(`/api/production/jobs/${id}/logs`); } catch { /* job sumiu */ }
@@ -1060,8 +1060,222 @@ function renderProduction() {
   ];
 }
 
+// ---------- Radar de Conteúdo ----------
+
+const RUN_STATUS = { Running: ['Pesquisando', 'info'], Completed: ['Concluída', 'ok'], Partial: ['Parcial', 'warn'], Failed: ['Falhou', 'bad'] };
+const SUGGESTION_STATUS = { Received: ['Nova', 'info'], Saved: ['Salva', 'ok'], Ignored: ['Ignorada', ''], InProduction: ['Em produção', 'ok'] };
+const OPPORTUNITY_KIND = { alta: 'ok', 'média': 'warn', media: 'warn', baixa: '' };
+const PLAN_LABEL = {
+  ideia: 'Ideia central', objetivo: 'Objetivo do vídeo', gancho: 'Gancho inicial', roteiro: 'Roteiro', cenas: 'Sequência de cenas',
+  gravar: 'O que gravar', gameplay: 'O que mostrar na gameplay', falas: 'Falas / narração', textos_tela: 'Textos na tela',
+  edicao: 'Sugestão de edição', titulo: 'Título', thumbnail: 'Thumbnail', legenda: 'Legenda e descrição', hashtags: 'Hashtags', duracao: 'Duração',
+};
+const ANALYSIS_LABEL = {
+  o_que_acontece: 'O que está acontecendo', por_que_atencao: 'Por que está chamando atenção', interessante: 'O que torna a ideia interessante',
+  por_que_agora: 'Por que produzir agora', concorrencia: 'Concorrência', versao_bast: 'Versão original para o Bast',
+};
+
+const num = n => (n === null || n === undefined) ? 'não disponível' : Number(n).toLocaleString('pt-BR');
+
+function valueBlock(value) {
+  if (Array.isArray(value)) return h('ul', { class: 'plan-list' }, value.map(v => h('li', { text: typeof v === 'string' ? v : JSON.stringify(v) })));
+  if (value && typeof value === 'object') return h('div', { class: 'small', text: JSON.stringify(value) });
+  return h('div', { class: 'small', text: value === null || value === undefined ? '' : String(value) });
+}
+
+function labeledBlocks(obj, labels) {
+  if (!obj) return [];
+  const keys = [...Object.keys(labels).filter(k => k in obj), ...Object.keys(obj).filter(k => !(k in labels))];
+  return keys.map(k => h('div', { class: 'plan-item' }, h('div', { class: 'small title', text: labels[k] || k.replace(/_/g, ' ') }), valueBlock(obj[k])));
+}
+
+function sourceLine(src) {
+  const metrics = src.platform === 'YouTube' || src.views !== undefined
+    ? ` · ${num(src.views)} views · ${num(src.likes)} curtidas · ${num(src.comments)} comentários · ${src.viewsPerHour ? num(Math.round(src.viewsPerHour)) + ' views/h' : 'views/h não disponível'}`
+    : '';
+  return h('li', {},
+    h('a', { href: src.url, target: '_blank', rel: 'noopener noreferrer', text: src.title || src.url }),
+    h('span', { class: 'small muted', text: `${src.platform ? ' · ' + src.platform : ''}${src.channel ? ' · ' + src.channel : ''}${metrics}${src.publishedAtUtc ? ' · publicado ' + fmtDateTime(src.publishedAtUtc) : ''}${src.consultedAtUtc ? ' · consultado ' + fmtDateTime(src.consultedAtUtc) : ''}` }));
+}
+
+function suggestionCard(s) {
+  const open = state.openSuggestion === s.id || state.openSuggestion === s.shortId;
+  const [statusLabel, statusKind] = SUGGESTION_STATUS[s.status] || [s.status, ''];
+  const call = (action, msg) => act(() => api(`/api/radar/suggestions/${s.id}/${action}`, 'POST'), r => r.message || msg);
+  return h('div', { class: 'item radar-card' + (open ? ' open' : ''), id: 'sugestao-' + s.shortId },
+    h('div', { class: 'row' },
+      h('div', {},
+        h('div', { class: 'title', text: `${s.format === 'Horizontal' ? 'H' : 'V'}${s.rank}. ${s.title}` }),
+        h('div', { class: 'top-actions' }, pill(s.category, 'info'), pill(s.tagName, ''), pill(s.market, ''),
+          pill('Oportunidade ' + (s.opportunity || '?'), OPPORTUNITY_KIND[(s.opportunity || '').toLowerCase()] || ''), pill(statusLabel, statusKind))),
+      h('div', { class: 'top-actions' },
+        h('button', { class: 'button small', type: 'button', text: open ? 'Fechar' : 'Ver plano', onclick: () => { state.openSuggestion = open ? null : s.id; render(true); } }),
+        s.status === 'Received' ? h('button', { class: 'button small', type: 'button', text: 'Salvar', onclick: () => call('save') }) : null,
+        s.status === 'Received' ? h('button', { class: 'button small', type: 'button', text: 'Ignorar', onclick: () => call('ignore') }) : null,
+        s.status !== 'InProduction'
+          ? confirmButton('start:' + s.id, 'Iniciar produção', 'Criar a produção no Estúdio de Ideias, com pasta e roteiro?', () => call('start'), 'primary')
+          : h('button', { class: 'button small', type: 'button', text: 'Ver no Estúdio', onclick: () => selectTab('studio') }))),
+    s.analysis && (s.analysis.por_que_agora || s.analysis.o_que_acontece)
+      ? h('div', { class: 'small muted', text: s.analysis.por_que_agora || s.analysis.o_que_acontece }) : null,
+    open ? h('div', { class: 'radar-detail' },
+      h('div', { class: 'title small', text: 'Análise da oportunidade' }), ...labeledBlocks(s.analysis, ANALYSIS_LABEL),
+      h('div', { class: 'title small', text: 'Plano de produção' }), ...labeledBlocks(s.plan, PLAN_LABEL),
+      h('div', { class: 'title small', text: 'Fontes' }), h('ul', { class: 'plan-list' }, (s.sources || []).map(sourceLine)),
+      h('div', { class: 'small muted', text: `Descoberta em ${fmtDateTime(s.discoveredAtUtc)}` })) : null);
+}
+
+function radarFilters(list) {
+  const f = state.radarFilter || {};
+  const options = (key, label) => {
+    const values = [...new Set(list.map(s => s[key]).filter(Boolean))].sort();
+    return h('label', { class: 'field' }, h('span', { text: label }),
+      h('select', { onchange: e => { state.radarFilter = { ...f, [key]: e.target.value }; render(true); } },
+        h('option', { value: '', text: 'Todos', selected: !f[key] }), values.map(v => h('option', { value: v, text: v, selected: f[key] === v }))));
+  };
+  return h('div', { class: 'fields radar-filters' }, options('tagName', 'Tag'), options('category', 'Categoria'), options('market', 'Mercado'));
+}
+
+function renderRadar() {
+  const r = state.data.radar;
+  if (!r) return [card('Radar de Conteúdo', emptyText('Sem resposta do Radar.'))];
+  const viewing = state.radarRun;
+  const list = viewing ? viewing.suggestions : r.suggestions;
+  const f = state.radarFilter || {};
+  const shown = list.filter(s => (!f.tagName || s.tagName === f.tagName) && (!f.category || s.category === f.category) && (!f.market || s.market === f.market));
+  const latest = viewing || r.latest;
+  const [runLabel, runKind] = latest ? (RUN_STATUS[latest.status] || [latest.status, '']) : ['Sem pesquisa ainda', 'warn'];
+  const lastFailed = r.runs[0] && r.runs[0].status === 'Failed' ? r.runs[0] : null;
+
+  const settingsForm = h('form', { class: 'row', onsubmit: e => {
+    e.preventDefault();
+    const v = new FormData(e.target);
+    act(() => api('/api/radar/settings', 'PUT', { dailyTime: v.get('dailyTime'), youTubeSearchBudget: Number(v.get('budget')) }), r2 => r2.message);
+  } },
+    h('label', { class: 'field' }, h('span', { text: 'Horário diário' }), h('input', { type: 'time', name: 'dailyTime', value: r.settings.dailyTime })),
+    h('label', { class: 'field' }, h('span', { text: 'Buscas no YouTube por dia' }), h('input', { type: 'number', name: 'budget', min: '0', max: '60', value: String(r.settings.youTubeSearchBudget) })),
+    h('button', { class: 'button small', type: 'submit', text: 'Salvar' }));
+
+  return [
+    card('Radar de Conteúdo',
+      h('div', { class: 'row' },
+        h('div', {},
+          h('div', { class: 'top-actions' }, pill(runLabel, runKind), r.youtubeConnected ? pill('YouTube conectado', 'ok') : pill('YouTube desconectado', 'bad')),
+          h('div', { class: 'small', text: latest ? `${viewing ? 'Vendo a pesquisa de' : 'Última pesquisa:'} ${fmtDateTime(latest.startedAtUtc)}` : 'Nenhuma pesquisa feita ainda.' }),
+          h('div', { class: 'small muted', text: `Pesquisa diária às ${r.settings.dailyTime} (${r.settings.timeZone}) · ${r.due.reason} · ${r.due.searchesLeft} busca(s) no YouTube restantes hoje` })),
+        h('div', { class: 'top-actions' },
+          viewing ? h('button', { class: 'button small', type: 'button', text: 'Voltar à de hoje', onclick: () => { state.radarRun = null; render(true); } }) : null,
+          h('button', { class: 'button primary small', type: 'button', text: 'Atualizar pesquisa agora', onclick: () => act(() => api('/api/radar/refresh', 'POST'), x => x.message) }))),
+      lastFailed && !viewing ? h('div', { class: 'small error-text', text: `A pesquisa de ${fmtDateTime(lastFailed.startedAtUtc)} falhou: ${lastFailed.error || ''}. As sugestões abaixo são da última pesquisa concluída.` }) : null,
+      latest && latest.summary ? h('p', { class: 'small', text: latest.summary }) : null,
+      latest && latest.shortfall ? h('p', { class: 'small warn-text', text: 'Menos oportunidades reais que o esperado: ' + latest.shortfall }) : null,
+      h('p', { class: 'small muted', text: 'A pesquisa é feita pela tarefa agendada do Claude (app do Claude aberto e PC ligado): primeiro criadores e fontes internacionais, depois o Brasil. Números só da API oficial do YouTube; o que ela não informa aparece como "não disponível".' }),
+      settingsForm),
+    list.length ? card('Filtros', radarFilters(list)) : null,
+    card('Horizontais (YouTube)', shown.filter(s => s.format === 'Horizontal').length
+      ? shown.filter(s => s.format === 'Horizontal').map(suggestionCard) : emptyText('Nenhuma sugestão horizontal.')),
+    card('Verticais (Shorts, Reels, TikTok)', shown.filter(s => s.format === 'Vertical').length
+      ? shown.filter(s => s.format === 'Vertical').map(suggestionCard) : emptyText('Nenhuma sugestão vertical.')),
+    r.saved.length ? card('Sugestões salvas', r.saved.map(suggestionCard)) : null,
+    tagsCard(r),
+    card('Histórico de pesquisas', r.runs.length ? r.runs.map(run => {
+      const [label, kind] = RUN_STATUS[run.status] || [run.status, ''];
+      return h('div', { class: 'item' }, h('div', { class: 'row' },
+        h('div', {}, h('div', { class: 'small', text: `${fmtDateTime(run.startedAtUtc)} · ${run.trigger}` }),
+          run.error ? h('div', { class: 'small error-text', text: run.error }) : null,
+          run.shortfall ? h('div', { class: 'small muted', text: run.shortfall }) : null),
+        h('div', { class: 'top-actions' }, pill(label, kind),
+          run.status !== 'Failed' && run.status !== 'Running'
+            ? h('button', { class: 'button small', type: 'button', text: 'Ver sugestões', onclick: () => api(`/api/radar/runs/${run.id}`).then(x => { state.radarRun = x; render(true); window.scrollTo(0, 0); }) })
+            : null)));
+    }) : emptyText('Nenhuma pesquisa ainda.')),
+  ].filter(Boolean);
+}
+
+function tagsCard(r) {
+  const editing = state.editingTag;
+  const form = (tag) => h('form', { class: 'tag-form', onsubmit: e => {
+    e.preventDefault();
+    const v = new FormData(e.target);
+    const body = { name: v.get('name'), synonyms: v.get('synonyms'), includeTerms: v.get('include'), excludeTerms: v.get('exclude'), active: v.get('active') === 'on' };
+    act(() => api(tag ? `/api/radar/tags/${tag.id}` : '/api/radar/tags', tag ? 'PUT' : 'POST', body), x => { state.editingTag = null; return x.message; });
+  } },
+    h('div', { class: 'fields' },
+      h('label', { class: 'field' }, h('span', { text: 'Nome' }), h('input', { name: 'name', required: true, value: tag ? tag.name : '' })),
+      h('label', { class: 'field' }, h('span', { text: 'Sinônimos (separe com ;)' }), h('input', { name: 'synonyms', value: tag ? tag.synonyms : '' })),
+      h('label', { class: 'field' }, h('span', { text: 'Incluir termos' }), h('input', { name: 'include', value: tag ? tag.includeTerms : '' })),
+      h('label', { class: 'field' }, h('span', { text: 'Excluir termos' }), h('input', { name: 'exclude', value: tag ? tag.excludeTerms : '' }))),
+    h('label', { class: 'checks' }, h('input', { type: 'checkbox', name: 'active', checked: tag ? tag.active : true }), 'Ativa (gera pesquisa diária própria)'),
+    h('div', { class: 'form-actions' }, h('button', { class: 'button primary small', type: 'submit', text: 'Salvar tag' }),
+      h('button', { class: 'button small', type: 'button', text: 'Cancelar', onclick: () => { state.editingTag = null; render(true); } })));
+
+  return card('Tags do Radar',
+    h('p', { class: 'small muted', text: 'Cada tag ativa tem a própria pesquisa diária. Sinônimos evitam pesquisas duplicadas (ex.: GTA VI = GTA 6 = Grand Theft Auto VI). Jogos sem tag ativa não são pesquisados.' }),
+    r.tags.map(t => editing === t.id ? form(t) : h('div', { class: 'item' }, h('div', { class: 'row' },
+      h('div', {}, h('div', { class: 'title', text: t.name }), h('div', { class: 'small muted', text: `${t.names.join(' · ')} · ${t.suggestions} sugestão(ões) no histórico` }),
+        t.excludeTerms ? h('div', { class: 'small muted', text: 'Exclui: ' + t.excludeTerms }) : null),
+      h('div', { class: 'top-actions' }, pill(t.active ? 'Ativa' : 'Inativa', t.active ? 'ok' : ''),
+        h('button', { class: 'button small', type: 'button', text: 'Ver sugestões', onclick: () => { state.radarFilter = { tagName: t.name }; window.scrollTo(0, 0); render(true); } }),
+        h('button', { class: 'button small', type: 'button', text: 'Editar', onclick: () => { state.editingTag = t.id; render(true); } }),
+        confirmButton('deltag:' + t.id, 'Excluir', `Excluir a tag ${t.name}? O histórico de sugestões continua.`,
+          () => act(() => api(`/api/radar/tags/${t.id}`, 'DELETE'), x => x.message)))))),
+    editing === 'new' ? form(null) : h('button', { class: 'button small', type: 'button', text: 'Nova tag', onclick: () => { state.editingTag = 'new'; render(true); } }));
+}
+
+// ---------- Estúdio de Ideias ----------
+
+const STUDIO_STATUS = {
+  SuggestionReceived: ['Sugestão recebida', ''], Saved: ['Salva', ''], AwaitingRecording: ['Aguardando gravação', 'warn'],
+  RecordingDetected: ['Gravação detectada', 'info'], AnalyzingFiles: ['Analisando arquivos', 'info'], Editing: ['Editando', 'info'],
+  Rendering: ['Renderizando', 'info'], Validating: ['Validando', 'info'], AwaitingUserReview: ['Aguardando sua análise', 'warn'],
+  Approved: ['Aprovado', 'ok'], ReleasedForPublishing: ['Liberado para publicação', 'ok'], Published: ['Publicado', 'ok'],
+  Error: ['Erro', 'bad'], NeedsReview: ['Precisa de revisão', 'warn'],
+};
+
+function renderStudio() {
+  const r = state.data.radar;
+  if (!r) return [card('Estúdio de Ideias', emptyText('Sem resposta.'))];
+  if (!r.studio.enabled) return [card('Estúdio de Ideias', emptyText('A pasta do Estúdio não está configurada (Bast:StudioFolder).'))];
+  const item = p => {
+    const [label, kind] = STUDIO_STATUS[p.status] || [p.status, ''];
+    const call = (action) => act(() => api(`/api/studio/${p.id}/${action}`, 'POST'), x => x.message);
+    return h('div', { class: 'item' },
+      h('div', { class: 'row' },
+        h('div', {}, h('div', { class: 'title', text: `${p.code} · ${p.title}` }),
+          h('div', { class: 'small muted', text: `${p.tagName} · ${p.format === 'Horizontal' ? 'Horizontal YouTube' : 'Vertical (BAST_VERTICAL_V1)'} · criada ${fmtDateTime(p.createdAtUtc)}` })),
+        h('div', { class: 'top-actions' }, pill(label, kind),
+          ['AwaitingRecording', 'RecordingDetected'].includes(p.status) && !p.recordingFinishedAtUtc
+            ? confirmButton('finished:' + p.id, 'Terminei de gravar', 'Marcar que terminou de gravar? A análise começa quando os arquivos pararem de mudar.', () => call('finished'), 'primary') : null,
+          p.status === 'Approved'
+            ? confirmButton('release:' + p.id, 'Liberar publicação', 'Liberar este vídeo para publicação?', () => call('release'), 'primary') : null)),
+      p.statusDetail ? h('div', { class: 'small', text: p.statusDetail }) : null,
+      p.missingScenes ? h('div', { class: 'small warn-text', text: 'Cenas faltando: ' + p.missingScenes }) : null,
+      h('div', { class: 'small muted', text: `Pasta: ${p.folder}` }),
+      p.files && p.files.length ? h('ul', { class: 'plan-list' }, p.files.map(f => h('li', { class: 'small',
+        text: `${f.arquivo} · ${f.mb} MB${f.duracao_s ? ' · ' + duration(f.duracao_s) : ''}${f.resolucao ? ' · ' + f.resolucao : ''}` }))) : null);
+  };
+  const groups = [
+    ['Aguardando gravação', ['AwaitingRecording', 'RecordingDetected']],
+    ['Em produção', ['AnalyzingFiles', 'Editing', 'Rendering', 'Validating']],
+    ['Aguardando sua aprovação', ['AwaitingUserReview', 'Approved']],
+    ['Revisão e erros', ['NeedsReview', 'Error']],
+    ['Liberados e publicados', ['ReleasedForPublishing', 'Published']],
+  ];
+  return [
+    card('Estúdio de Ideias',
+      h('p', { class: 'small', text: `Grave as cenas do roteiro e coloque os arquivos na pasta da produção, em ${r.studio.folder}. Quando terminar, clique em "Terminei de gravar" (ou crie PRONTO.txt na pasta). A pasta é reconhecida pelo código no roteiro.json, mesmo se você renomeá-la.` }),
+      h('p', { class: 'small muted', text: 'Fluxo separado das lives. Nenhum vídeo do Estúdio é publicado sem você clicar em "Liberar publicação" nele; a publicação automática da Agenda não vale aqui.' })),
+    ...groups.map(([title, statuses]) => {
+      const list = r.productions.filter(p => statuses.includes(p.status));
+      return list.length ? card(title, list.map(item)) : null;
+    }).filter(Boolean),
+    r.productions.length ? null : card('Produções', emptyText('Nenhuma produção ainda. Escolha uma sugestão no Radar e clique em "Iniciar produção".')),
+  ].filter(Boolean);
+}
+
 const RENDERERS = {
   overview: renderOverview,
+  radar: renderRadar,
+  studio: renderStudio,
   production: renderProduction,
   queue: renderQueue,
   history: renderHistory,
@@ -1093,6 +1307,17 @@ function render(force) {
   const queueCount = document.getElementById('count-queue');
   queueCount.textContent = view.pending.length ? String(view.pending.length) : '';
   queueCount.className = 'count' + (view.awaitingTime.length ? ' alert' : '');
+  // Radar: sugestões novas da última pesquisa; Estúdio: produções que esperam você (gravar, aprovar, revisar).
+  const radarData = data.radar;
+  const newSuggestions = radarData ? radarData.suggestions.filter(s => s.status === 'Received').length : 0;
+  const radarCount = document.getElementById('count-radar');
+  radarCount.textContent = newSuggestions ? String(newSuggestions) : '';
+  radarCount.className = 'count' + (radarData && radarData.runs[0] && radarData.runs[0].status === 'Failed' ? ' alert' : '');
+  const studioWaiting = radarData ? radarData.productions.filter(p => ['AwaitingUserReview', 'NeedsReview', 'Error', 'Approved'].includes(p.status)).length : 0;
+  const studioCount = document.getElementById('count-studio');
+  studioCount.textContent = studioWaiting ? String(studioWaiting) : '';
+  studioCount.className = 'count' + (studioWaiting ? ' alert' : '');
+
   // Produção: jobs que esperam você (autorizar, revisar, aprovar) ou que estão parados por algum motivo.
   const productionJobs = (data.production && data.production.jobs) || [];
   const waitingYou = productionJobs.filter(j => (!j.authorized && !['Cancelled', 'Failed', 'Published'].includes(j.status))
@@ -1115,7 +1340,9 @@ function render(force) {
   const readingChart = document.querySelector('.agenda-chart:hover, .agenda-col:focus');
   // Nem enquanto um vídeo de entrega toca ou o mouse está sobre as entregas (redesenhar reiniciaria o vídeo).
   const watching = document.querySelector('.deliverables:hover')
-    || [...document.querySelectorAll('.deliverables video')].some(v => !v.paused);
+    || [...document.querySelectorAll('.deliverables video')].some(v => !v.paused)
+    // Nem enquanto o usuário digita nos formulários do Radar (tags, horário).
+    || (document.activeElement && document.activeElement.closest && document.activeElement.closest('#tab-radar form'));
   if ((state.tab !== 'schedule' || !state.scheduleDirty || force) && (!pickingTime || force) && (!readingChart || force) && (!watching || force)) {
     const panel = document.getElementById('tab-' + state.tab);
     const scroll = window.scrollY;
@@ -1127,9 +1354,13 @@ function render(force) {
 }
 
 function selectTab(name) {
-  state.tab = RENDERERS[name] ? name : 'overview';
-  if (location.hash.slice(1) !== state.tab) history.replaceState(null, '', '#' + state.tab);
+  // Links do Telegram: #radar/<id curto> abre o Radar com a sugestão aberta.
+  const [tab, sub] = String(name || '').split('/');
+  state.tab = RENDERERS[tab] ? tab : 'overview';
+  if (state.tab === 'radar' && sub) state.openSuggestion = sub;
+  if (location.hash.slice(1) !== name) history.replaceState(null, '', '#' + (sub && state.tab === 'radar' ? `radar/${sub}` : state.tab));
   render(true);
+  if (sub && state.tab === 'radar') setTimeout(() => { const el = document.getElementById('sugestao-' + sub); if (el) el.scrollIntoView({ block: 'start' }); }, 50);
 }
 
 document.querySelector('.tabs').addEventListener('click', event => {
@@ -1144,7 +1375,14 @@ document.getElementById('pause-button').addEventListener('click', () => {
 
 window.addEventListener('hashchange', () => selectTab(location.hash.slice(1)));
 
-state.tab = RENDERERS[location.hash.slice(1)] ? location.hash.slice(1) : 'overview';
-refresh();
+{
+  const [tab, sub] = location.hash.slice(1).split('/');
+  state.tab = RENDERERS[tab] ? tab : 'overview';
+  if (state.tab === 'radar' && sub) state.openSuggestion = sub;
+}
+refresh().then(() => {
+  const sub = location.hash.slice(1).split('/')[1];
+  if (sub && state.tab === 'radar') { const el = document.getElementById('sugestao-' + sub); if (el) el.scrollIntoView({ block: 'start' }); }
+});
 setInterval(() => { if (!document.hidden) refresh(); }, REFRESH_MS);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });

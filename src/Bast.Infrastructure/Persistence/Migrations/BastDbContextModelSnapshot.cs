@@ -451,6 +451,219 @@ namespace Bast.Infrastructure.Persistence.Migrations
                     b.ToTable("publication_attempts", (string)null);
                 });
 
+            modelBuilder.Entity("Bast.Domain.RadarRun", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Error")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("FinishedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Shortfall")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("StartedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Summary")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Trigger")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StartedAtUtc");
+
+                    b.ToTable("radar_runs", (string)null);
+                });
+
+            modelBuilder.Entity("Bast.Domain.RadarSettings", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("DailyTime")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ManualRequestedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SearchesDate")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("SearchesUsed")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("YouTubeSearchBudget")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("radar_settings", (string)null);
+                });
+
+            modelBuilder.Entity("Bast.Domain.RadarSuggestion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AnalysisJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("DiscoveredAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Format")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("IgnoredAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Market")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Opportunity")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PlanJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Rank")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid>("RunId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("SavedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SourcesJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("StudioProductionId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("TagId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TagName")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TagId");
+
+                    b.HasIndex("RunId", "Format", "Rank");
+
+                    b.ToTable("radar_suggestions", (string)null);
+                });
+
+            modelBuilder.Entity("Bast.Domain.RadarTag", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Active")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ExcludeTerms")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("IncludeTerms")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Synonyms")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("radar_tags", (string)null);
+                });
+
+            modelBuilder.Entity("Bast.Domain.RadarVideoSnapshot", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("AtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("Comments")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("Likes")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("VideoId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("Views")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("VideoId", "AtUtc");
+
+                    b.ToTable("radar_video_snapshots", (string)null);
+                });
+
             modelBuilder.Entity("Bast.Domain.ScheduleSettings", b =>
                 {
                     b.Property<int>("Id")
@@ -520,6 +733,85 @@ namespace Bast.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("schedule_settings", (string)null);
+                });
+
+            modelBuilder.Entity("Bast.Domain.StudioProduction", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FilesJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Folder")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FolderName")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Format")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("MissingScenes")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PlanJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("RecordingFinishedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ReleasedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SourcesJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("StatusDetail")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("SuggestionId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TagName")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.HasIndex("SuggestionId");
+
+                    b.ToTable("studio_productions", (string)null);
                 });
 
             modelBuilder.Entity("Bast.Domain.Video", b =>
@@ -670,6 +962,15 @@ namespace Bast.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Bast.Domain.RadarSuggestion", b =>
+                {
+                    b.HasOne("Bast.Domain.RadarRun", null)
+                        .WithMany("Suggestions")
+                        .HasForeignKey("RunId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Bast.Domain.ProductionJob", b =>
                 {
                     b.Navigation("Steps");
@@ -678,6 +979,11 @@ namespace Bast.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("Bast.Domain.Publication", b =>
                 {
                     b.Navigation("Attempts");
+                });
+
+            modelBuilder.Entity("Bast.Domain.RadarRun", b =>
+                {
+                    b.Navigation("Suggestions");
                 });
 
             modelBuilder.Entity("Bast.Domain.Video", b =>

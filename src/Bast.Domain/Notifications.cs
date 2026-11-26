@@ -13,6 +13,10 @@ public enum NotificationKind
     Test,
     /// <summary>Produção: gravação recebida, job parado por espaço, falha ou revisão pedida.</summary>
     ProductionAlert,
+    /// <summary>Radar de Conteúdo: resumo diário das sugestões, ou aviso de que a pesquisa falhou.</summary>
+    RadarDaily,
+    /// <summary>Estúdio de Ideias: gravação detectada, cena faltando, vídeo aguardando aprovação.</summary>
+    StudioAlert,
 }
 
 /// <summary>

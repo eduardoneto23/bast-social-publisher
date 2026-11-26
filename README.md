@@ -243,7 +243,8 @@ Os mesmos controles estão no painel, na aba Fila.
 
 ## Produção (gravações do OBS viram vídeos)
 
-Em implementação por fases. **Hoje (fase 2):** recebimento das gravações, jobs, etapas com retomada, parada de emergência e aba **Produção** no painel. A análise, a edição, as thumbnails e a revisão chegam nas próximas fases; até lá o job para, sem simular nada, na primeira etapa que ainda não existe.
+Em implementação por fases. **Hoje (fases 2 e 3):** recebimento das gravações, jobs, etapas com retomada, parada de emergência, aba **Produção** no painel e a **análise automática** (etapa `analise-midia`): faixas de jogo e microfone separadas, quadros e folhas de contato, recorte da webcam, transcrição (Whisper na placa de vídeo), tosse/pigarro/risada/grito, presença na câmera, conteúdo explícito (NudeNet), tela preta, congelamento, trocas de cena e picos de voz, tudo resumido em `1 - analise\analise.json` com alertas. Os detectores apontam suspeitas; a revisão visual vem nas próximas fases. A seleção de momentos, a edição, as thumbnails e a revisão chegam nas fases 4 a 7; até lá o job para, sem simular nada, na primeira etapa que ainda não existe.
+- **Ambiente da análise:** `scripts\instalar-producao.ps1` cria `SYSTEM\tools\python-producao` (torch com CUDA, faster-whisper, transformers, OpenCV 4, NudeNet) e baixa os modelos para `SYSTEM\tools\modelos`; os jobs rodam sem internet. Opções: `ProductionGameTrack`/`ProductionMicTrack` (faixas do OBS, padrão 1 e 2), `ProductionWebcam` (área da webcam, padrão `0,0,372,268`), `ProductionWhisperModel` (padrão `small`). Os scripts vão junto com o serviço na pasta `producao`.
 
 - **Pasta do OBS:** `00 - GRAVACOES` (configure o caminho de gravação do OBS para ela). O BAST só lê: o original nunca é movido, renomeado, alterado ou apagado.
 - **Gravação pronta** quando, ao mesmo tempo: o nome não é de Replay Buffer nem captura (`Bast:ProductionIgnorePatterns`, padrão `^Replay` e `^Screenshot`); o OBS largou o arquivo; tamanho e data não mudam há 2 min (`ProductionStableSeconds`); o ffprobe lê vídeo e áudio; o final decodifica sem erro; e dura mais de 5 min (`ProductionMinDurationSeconds`, as mais curtas são testes). A mesma gravação nunca gera dois jobs.
@@ -253,6 +254,19 @@ Em implementação por fases. **Hoje (fase 2):** recebimento das gravações, jo
 - **Parada de emergência:** botão **PARAR AGORA** (ou `POST /api/production/stop`): nenhuma etapa nova começa e a atual é interrompida, sem apagar nada. **Liberar produção** (`POST /api/production/release`) continua de onde parou.
 - **Publicação:** interruptor **Publicar automaticamente o que for APROVADO** na Agenda, desligado por padrão. Desligado, cada vídeo produzido só entra na agenda pelo botão **Liberar** (fase 8).
 - **API:** `GET /api/production`, `GET /api/production/jobs/{id}/logs`, `POST /api/production/jobs/{id}/authorize|pause|resume|cancel`.
+
+## Radar de Conteúdo e Estúdio de Ideias
+
+Fluxo separado da edição das lives (filas, pastas, configurações e aprovação próprias).
+
+- **Pesquisa diária:** feita pela tarefa agendada do Claude (`tools\radar\tarefa-radar.md`, a cada 30 min só confere se está na hora). Roda no horário da aba **Radar** (padrão 08:00, fuso da Agenda), quando você clica em **Atualizar pesquisa agora**, ou assim que possível se o PC/app estava desligado no horário. Precisa do app do Claude aberto e do PC ligado.
+- **Fontes:** primeiro internacionais (inglês), depois Brasil. Métricas (views, curtidas, comentários, data, views/hora e crescimento entre consultas) só da API oficial do YouTube (`GET /api/radar/youtube`, com a conta já conectada; escopo `youtube.readonly`); o que a API não informa aparece como "não disponível". Cada busca gasta 100 unidades da cota diária do YouTube, compartilhada com os envios: o Radar tem um limite de buscas por dia (padrão 12).
+- **Tags:** cada tag ativa tem a própria pesquisa; sinônimos evitam duplicação (GTA VI = GTA 6 = Grand Theft Auto VI = GTA6). Jogo sem tag ativa não é pesquisado.
+- **Sugestões:** até 5 horizontais e 5 verticais por tag, cada uma com fonte verificável (link), análise e plano de produção (ideia, gancho, roteiro, o que gravar...). Sem oportunidades reais suficientes, o Radar registra a falta em vez de completar. Pesquisa que falha é avisada no painel e no Telegram, sem reaproveitar sugestões antigas.
+- **Telegram:** o mesmo bot recebe 3 mensagens (resumo, horizontais, verticais) com links para o painel (`Bast:PanelUrl`, padrão `http://127.0.0.1:5080/`; só abrem neste computador).
+- **Estúdio de Ideias** (`Bast:StudioFolder`, ex.: `G:\BAST\ESTUDIO_DE_IDEIAS`, com as pastas `00 - GRAVACOES_PENDENTES` a `08 - PROJETOS_E_ASSETS`): **Iniciar produção** cria o código `BAST-AAAAMMDD-NNN`, a pasta da produção com `roteiro.json` e `ROTEIRO.txt`. A pasta é reconhecida pelo código do `roteiro.json` (renomear não quebra). A gravação conta como terminada quando você clica em **Terminei de gravar** (ou cria `PRONTO.txt`) e os arquivos param de mudar por 2 minutos; os vídeos são conferidos e a pasta vai para `01 - EM_ANALISE`. Nada é apagado. A edição guiada pelo roteiro chega com as fases 4 a 8 da produção.
+- **Publicação:** nenhum vídeo do Estúdio sai sem o botão **Liberar publicação** dele (e só depois de aprovado). A publicação automática da Agenda não vale para o Estúdio.
+- **API:** `GET /api/radar`, `GET /api/radar/due`, `POST /api/radar/runs/begin`, `POST /api/radar/runs/{id}/submit|fail`, `POST /api/radar/refresh`, `PUT /api/radar/settings`, `POST|PUT|DELETE /api/radar/tags`, `POST /api/radar/suggestions/{id}/save|ignore|start`, `POST /api/studio/{id}/finished|release`.
 
 ## Regras que o programa segue
 

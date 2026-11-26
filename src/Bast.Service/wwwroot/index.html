@@ -23,6 +23,8 @@
 
   <nav class="tabs" aria-label="Seções">
     <button type="button" data-tab="overview" class="tab">Visão geral</button>
+    <button type="button" data-tab="radar" class="tab">Radar <span id="count-radar" class="count"></span></button>
+    <button type="button" data-tab="studio" class="tab">Estúdio <span id="count-studio" class="count"></span></button>
     <button type="button" data-tab="production" class="tab">Produção <span id="count-production" class="count"></span></button>
     <button type="button" data-tab="queue" class="tab">Fila <span id="count-queue" class="count"></span></button>
     <button type="button" data-tab="history" class="tab">Histórico</button>
@@ -36,6 +38,8 @@
 
   <main>
     <section id="tab-overview" class="panel" hidden></section>
+    <section id="tab-radar" class="panel" hidden></section>
+    <section id="tab-studio" class="panel" hidden></section>
     <section id="tab-production" class="panel" hidden></section>
     <section id="tab-queue" class="panel" hidden></section>
     <section id="tab-history" class="panel" hidden></section>
