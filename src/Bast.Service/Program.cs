@@ -556,6 +556,11 @@ app.MapGet("/api/production/claude", async (IDbContextFactory<BastDbContext> fac
             jobId = job.Id, step = next.Name, title = definition.Title, job.SourceFileName, job.SourcePath, job.DurationSeconds,
             job.WorkFolder, analysisFolder = Path.Combine(job.WorkFolder!, ProductionFolders.Analysis),
             planFile = SelectionStep.PlanPath(job.WorkFolder!), lastRejection = next.Error,
+            thumbnailsFolder = Path.Combine(job.WorkFolder!, ProductionFolders.Thumbnails),
+            horizontalFolder = Path.Combine(job.WorkFolder!, ProductionFolders.Horizontal),
+            // Ferramentas do repositório (recorte com IA, envio ao Canva), ao lado da pasta "publish" do serviço.
+            toolsFolder = Directory.Exists(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "tools")))
+                ? Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "tools")) : null,
         });
     }
 

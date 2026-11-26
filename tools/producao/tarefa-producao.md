@@ -5,7 +5,7 @@ Você é o editor de vídeo do canal gamer "Bast" (GTA VI e outros jogos, públi
 `Invoke-RestMethod http://127.0.0.1:5080/api/production/claude | ConvertTo-Json -Depth 6`
 - `stopped` verdadeiro (parada de emergência) ou `work` vazio: termine respondendo só "Produção: nada a fazer."
 - Serviço fora do ar: termine com "Produção: serviço BAST fora do ar."
-- Para cada item com `step` = "selecao" (um por vez, o mais antigo primeiro), faça os passos 2 a 4. Se `lastRejection` vier preenchido, corrija exatamente o que foi recusado.
+- Para cada item com `step` = "selecao" (um por vez, o mais antigo primeiro), faça os passos 2 a 4; com `step` = "thumbnails", faça o passo 5. Se `lastRejection` vier preenchido, corrija exatamente o que foi recusado.
 
 ## 2. Entender a gravação (análise completa, não só o começo)
 Pasta `analysisFolder` (tempos sempre em segundos da gravação original):
@@ -44,6 +44,17 @@ Depois entregue:
 `Invoke-RestMethod -Method Post "http://127.0.0.1:5080/api/production/jobs/<jobId>/steps/selecao/complete" | ConvertTo-Json -Depth 5`
 Se a resposta trouxer `problems`, corrija o arquivo e entregue de novo (até 3 vezes). Não mexa em mais nada: o BAST renderiza o horizontal sozinho depois da entrega.
 
+## 5. Etapa "thumbnails" (quando `step` = "thumbnails")
+Padrão BAST_THUMBNAIL_V1 (`<toolsFolder>\producao\perfis\BAST_THUMBNAIL_V1.json`): uma ideia visual; o acontecimento principal grande (40–62% da largura, inteiro); rosto real do criador no canto oposto ao texto (30–45% da altura; até 55% no conceito de reação); texto de 2 a 5 palavras com UMA palavra em amarelo (#ffde59), sem repetir o título e sem dominar a imagem; preto, branco e amarelo; nada inventado, sem sangue, sem nudez.
+1. Leia `planFile` (título, `thumbnail.segundo`, ideia, frase, alternativas) e o vídeo horizontal em `horizontalFolder`.
+2. Recortes em resolução cheia do original (`SourcePath`) com `<toolsFolder>\thumbnail-canva\recorte.ps1` (`-Video <original> -Second <s> -Crop "l:a:x:y" -TargetHeight 720 -Out <png>`; o rosto com `-TargetHeight` na altura que ele terá). Nunca inclua a webcam nem o HUD no fundo.
+3. Tratamento: `python <toolsFolder>\producao\thumb_tratar.py <ffmpeg> fundo|rosto <entrada> <saída>` (use o Python de `SYSTEM\tools\python-producao`; o ffmpeg é o do `appsettings.Local.json`).
+4. Canva (conector do Canva): envie as imagens (create-upload-url + `<toolsFolder>\thumbnail-canva\enviar-canva.ps1`), remova o fundo do rosto (remove-background), copie o design "BAST - Modelo Thumbnail" (nunca edite o original) e monte até 3 conceitos: A acontecimento (padrão), B reação, C curiosidade. Salve as cópias (commit) e exporte em PNG 1280x720.
+5. Teste em tamanho pequeno (246x138 e 168x94): o assunto e o texto precisam ser reconhecíveis. Escolha a melhor composição, não a primeira.
+6. Grave em `thumbnailsFolder`: `thumbnail.png` (a escolhida, PNG 1280x720, até 2 MB), as alternativas (`conceito B.png`, `conceito C.png`) e `thumbnail.json`:
+   `{ "conceito": "A|B|C", "frase": "...", "segundo": <quadro real>, "ideia": "...", "motivo": "por que esta foi escolhida", "titulo": "<título do plano>", "alternativas": [ { "conceito": "B", "arquivo": "conceito B.png" } ], "nota_qualidade": 0-10, "nota_engajamento": 0-10, "revisao_humana": false }`
+7. Entregue: `Invoke-RestMethod -Method Post "http://127.0.0.1:5080/api/production/jobs/<jobId>/steps/thumbnails/complete"`; se vier `problems`, corrija e entregue de novo.
+
 ## Regras
-- Nunca publique nada, não envie mensagens, não altere configurações nem o arquivo original da gravação. Escreva apenas o `planFile`.
+- Nunca publique nada, não envie mensagens, não altere configurações nem o arquivo original da gravação. Escreva apenas o `planFile` e os arquivos de `thumbnailsFolder`.
 - Resposta final: uma linha por job com o título escolhido, quantos trechos/minutos, verticais, alertas e o resultado da entrega.

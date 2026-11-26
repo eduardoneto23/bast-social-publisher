@@ -177,6 +177,56 @@ public class EditingTests
         Assert.Empty(tools.RenderPlans);
     }
 
+    /// <summary>PNG mínimo (assinatura + IHDR) com a largura e a altura pedidas.</summary>
+    private static byte[] Png(int width, int height)
+    {
+        var bytes = new byte[33];
+        new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13, (byte)'I', (byte)'H', (byte)'D', (byte)'R' }.CopyTo(bytes, 0);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(bytes.AsSpan(16), width);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(bytes.AsSpan(20), height);
+        return bytes;
+    }
+
+    [Fact]
+    public async Task Thumbnail_delivery_is_checked_against_youtube_and_the_profile()
+    {
+        using var env = new TestEnvironment();
+        var work = Path.Combine(env.Root, "trabalho", "job");
+        foreach (var sub in ProductionFolders.All) Directory.CreateDirectory(Path.Combine(work, sub));
+        var folder = Path.Combine(work, ProductionFolders.Thumbnails);
+        var job = new ProductionJob { Id = Guid.NewGuid(), SourceFileName = "g.mp4", DurationSeconds = 698 };
+        var context = new StepContext(job, work, (_, _, _, _) => { });
+        var step = new ThumbnailStep();
+
+        var missing = await step.CheckAsync(context, default);
+        Assert.Contains(missing.Problems, p => p.Contains("thumbnail.png"));
+        Assert.Contains(missing.Problems, p => p.Contains("thumbnail.json"));
+
+        File.WriteAllBytes(Path.Combine(folder, "thumbnail.png"), Png(1920, 1080));
+        File.WriteAllText(Path.Combine(folder, "thumbnail.json"), """
+            { "conceito": "D", "frase": "UMA FRASE LONGA DEMAIS PRA THUMB", "segundo": 461.5, "motivo": "",
+              "alternativas": [ { "conceito": "B", "arquivo": "conceito B.png" } ] }
+            """);
+        var bad = await step.CheckAsync(context, default);
+        Assert.Contains(bad.Problems, p => p.Contains("1920x1080"));
+        Assert.Contains(bad.Problems, p => p.Contains("palavra"));
+        Assert.Contains(bad.Problems, p => p.Contains("conceito"));
+        Assert.Contains(bad.Problems, p => p.Contains("motivo"));
+        Assert.Contains(bad.Problems, p => p.Contains("conceito B.png"));
+
+        File.WriteAllBytes(Path.Combine(folder, "thumbnail.png"), Png(1280, 720));
+        File.WriteAllBytes(Path.Combine(folder, "conceito B.png"), Png(1280, 720));
+        File.WriteAllText(Path.Combine(folder, "thumbnail.json"), """
+            { "conceito": "A", "frase": "O CARRO VOOU!", "segundo": 461.5, "motivo": "Carro grande, reação no canto.",
+              "alternativas": [ { "conceito": "B", "arquivo": "conceito B.png" } ] }
+            """);
+        var ok = await step.CheckAsync(context, default);
+        Assert.Empty(ok.Problems);
+        Assert.Null(ok.Review);
+        Assert.Contains("conceito A", ok.Summary);
+        Assert.Contains("1 alternativa", ok.Summary);
+    }
+
     [Fact]
     public async Task Horizontal_edit_renders_from_the_plan_and_writes_project_and_metadata()
     {
