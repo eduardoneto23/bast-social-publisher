@@ -54,6 +54,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<Bast.Application.Production.IProductionStep, Bast.Application.Production.MediaAnalysisStep>();
         services.AddSingleton<Bast.Application.Production.IProductionStep, Bast.Application.Production.SelectionStep>();
         services.AddSingleton<Bast.Application.Production.IProductionStep, Bast.Application.Production.HorizontalEditStep>();
+        services.AddSingleton<Bast.Application.Production.IProductionStep, Bast.Application.Production.VerticalEditStep>();
         services.AddSingleton<Bast.Application.Production.ProductionPipeline>();
         services.AddSingleton<Bast.Application.Production.RecordingScanner>();
         services.AddSingleton<Bast.Application.Production.ProductionRunner>();

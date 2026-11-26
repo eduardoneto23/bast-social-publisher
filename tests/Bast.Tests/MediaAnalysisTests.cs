@@ -21,7 +21,7 @@ public sealed class FakeProductionTools : IProductionTools
         Calls.Add("ffmpeg " + string.Join(' ', arguments.Where(a => a.Contains('.') && !a.StartsWith('-')).Select(Path.GetFileName)));
         foreach (var arg in arguments)
         {
-            if (arg.EndsWith(".part.wav")) File.WriteAllText(arg, "wav");
+            if (arg.EndsWith(".part.wav") || arg.EndsWith(".part.mp4")) File.WriteAllText(arg, "media");
             else if (arg.Contains("%04d.jpg"))
             {
                 for (var i = 1; i <= Frames; i++) File.WriteAllText(arg.Replace("%04d", i.ToString("D4")), "jpg");
@@ -34,6 +34,13 @@ public sealed class FakeProductionTools : IProductionTools
 
     public Task<ToolResult> RunScriptAsync(string script, IReadOnlyList<string> arguments, CancellationToken ct)
     {
+        if (script == "render.py" && arguments.Count > 1 && arguments[1] == "--previa")
+        {
+            Calls.Add("render.py --previa");
+            File.WriteAllText(arguments[3], "png");
+            return Task.FromResult(new ToolResult(0, "prévia", ""));
+        }
+
         Calls.Add(script);
         if (script == FailScript) return Task.FromResult(new ToolResult(1, "", "Traceback\nRuntimeError: falhou de propósito"));
         var (output, json) = script switch
@@ -51,11 +58,13 @@ public sealed class FakeProductionTools : IProductionTools
     }
 
     public JsonObject? LastRenderPlan { get; private set; }
+    public List<JsonObject> RenderPlans { get; } = [];
 
     /// <summary>Simula o render.py: grava o vídeo e a EDL com os trechos do plano.</summary>
     private (string, string) RenderFake(string planPath)
     {
         LastRenderPlan = JsonNode.Parse(File.ReadAllText(planPath))!.AsObject();
+        RenderPlans.Add(LastRenderPlan);
         var output = LastRenderPlan["output"]!.ToString();
         File.WriteAllText(output, "mp4");
         var hide = LastRenderPlan["cam_hide"]!.AsArray().Select(r => (r![0]!.GetValue<double>(), r[1]!.GetValue<double>())).ToList();

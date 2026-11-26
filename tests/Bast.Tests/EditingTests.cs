@@ -118,6 +118,66 @@ public class EditingTests
     }
 
     [Fact]
+    public async Task Verticals_use_the_v1_profile_real_speech_captions_and_capcut_files()
+    {
+        using var env = new TestEnvironment();
+        var work = Path.Combine(env.Root, "trabalho", "job");
+        foreach (var sub in ProductionFolders.All) Directory.CreateDirectory(Path.Combine(work, sub));
+        var plan = Plan();
+        plan["voz_abaixar"] = JsonNode.Parse("[[47.5, 48.5], [466, 468]]");
+        plan["verticais"] = JsonNode.Parse("""
+            [ { "inicio": 453, "fim": 471, "gancho": "A POLÍCIA CERCOU... E O CARRO *VOOU*", "titulo": "O supercarro VOOU", "legenda": "Só tinha um caminho: pra cima",
+                "foco": [[453, 0.5], [460, 0.56]] },
+              { "inicio": 600, "fim": 620, "gancho": "FUGA A PÉ", "falas": [ { "start": 605, "end": 606.5, "text": "*CORRE*!" } ] } ]
+            """);
+        File.WriteAllText(SelectionStep.PlanPath(work), plan.ToJsonString());
+        // Fala real: "bora bora bora" no corte 1; "teste feito" cai na voz abaixada e não pode virar legenda.
+        File.WriteAllText(Path.Combine(work, ProductionFolders.Analysis, "transcricao.json"), """
+            {"segments":[{"start":457.8,"end":459.6,"text":"Bora, bora, bora!","words":[
+              {"start":457.85,"end":458.3,"word":"Bora,","p":0.9},{"start":458.33,"end":458.8,"word":"bora,","p":0.9},{"start":458.85,"end":459.4,"word":"bora!","p":0.9}]},
+             {"start":466.2,"end":467.5,"text":"teste feito","words":[{"start":466.2,"end":466.8,"word":"teste","p":0.8},{"start":466.9,"end":467.5,"word":"feito","p":0.9}]}]}
+            """);
+        var job = new ProductionJob
+        {
+            Id = Guid.NewGuid(), SourceFileName = "gravacao.mp4", SourcePath = Path.Combine(env.Root, "gravacao.mp4"),
+            DurationSeconds = 698, AudioTracks = 4, Fps = 60, Width = 1920, Height = 1080,
+        };
+        var tools = new FakeProductionTools();
+        var step = new VerticalEditStep(tools, new BastOptions());
+
+        var summary = await step.RunAsync(new StepContext(job, work, (_, _, _, _) => { }), default);
+
+        Assert.Contains("2 vertical(is)", summary);
+        Assert.Equal(2, tools.RenderPlans.Count);
+        var first = tools.RenderPlans[0];
+        Assert.Equal("vertical", first["mode"]!.ToString());
+        Assert.Equal("BAST_VERTICAL_V1", first["profile"]!.ToString());
+        Assert.Equal("A POLÍCIA CERCOU... E O CARRO *VOOU*", first["hook"]!.ToString());
+        Assert.Equal(2, first["focus"]!.AsArray().Count);
+        var captions = first["captions"]!.AsArray().Select(c => c!["text"]!.ToString()).ToList();
+        Assert.Equal(["Bora, bora, bora!"], captions);
+        Assert.Equal("*CORRE*!", tools.RenderPlans[1]["captions"]![0]!["text"]!.ToString());
+        Assert.Equal(2, tools.Calls.Count(c => c == "render.py --previa"));
+
+        var vertical = Path.Combine(work, ProductionFolders.Vertical);
+        Assert.Equal(2, Directory.GetFiles(vertical, "*- vertical.mp4").Length);
+        Assert.Equal(2, Directory.GetFiles(vertical, "*- previa.png").Length);
+        var projects = Path.Combine(work, ProductionFolders.Projects);
+        Assert.Equal(2, Directory.GetFiles(projects, "*trecho original 16x9.mp4").Length);
+        var srt = File.ReadAllText(Directory.GetFiles(projects, "01 -*legendas.srt").Single());
+        Assert.Contains("00:00:04,850 --> 00:00:06,400", srt); // 457,85 - 453
+        Assert.DoesNotContain("teste", srt);
+        Assert.Contains("CORRE!", File.ReadAllText(Directory.GetFiles(projects, "02 -*legendas.srt").Single()));
+        Assert.Contains("Só tinha um caminho", File.ReadAllText(Directory.GetFiles(vertical, "01 -*.txt").Single()));
+
+        // Retomada: nada é renderizado de novo.
+        tools.Calls.Clear();
+        tools.RenderPlans.Clear();
+        await step.RunAsync(new StepContext(job, work, (_, _, _, _) => { }), default);
+        Assert.Empty(tools.RenderPlans);
+    }
+
+    [Fact]
     public async Task Horizontal_edit_renders_from_the_plan_and_writes_project_and_metadata()
     {
         using var env = new TestEnvironment();
