@@ -35,6 +35,23 @@ public interface IProductionStep
     Task<string> RunAsync(StepContext context, CancellationToken ct);
 }
 
+/// <summary>
+/// Etapa feita fora do serviço, pelo Claude (tarefa agendada de produção): o executor não a roda; o job espera
+/// até o Claude entregar o resultado pela API, que é conferido aqui antes de a etapa contar como concluída.
+/// </summary>
+public interface IExternalStep : IProductionStep
+{
+    /// <summary>Texto do painel enquanto o job espera esta etapa.</summary>
+    string WaitingText { get; }
+
+    /// <summary>Confere o que foi entregue. Problemas = recusa (a etapa continua esperando, com o motivo).</summary>
+    Task<ExternalStepCheck> CheckAsync(StepContext context, CancellationToken ct);
+}
+
+/// <summary>Resultado da conferência de uma etapa externa.</summary>
+/// <param name="Review">Motivo para parar o job em revisão humana (cena sensível, dúvida de segurança...), ou nulo.</param>
+public sealed record ExternalStepCheck(IReadOnlyList<string> Problems, string Summary, string? Review = null);
+
 /// <summary>Etapa prevista que ainda não foi implementada: o job para nela, sem simular nada.</summary>
 public sealed record PlannedStep(string Name, string Title, ProductionStatus Status, int Phase);
 

@@ -524,6 +524,7 @@ app.MapPost("/api/production/jobs/{id:guid}/{action}", async (Guid id, string ac
         "pause" => await commands.PauseAsync(id, ct),
         "resume" => await commands.ResumeAsync(id, ct),
         "cancel" => await commands.CancelAsync(id, ct),
+        "continue" => await commands.ContinueAfterReviewAsync(id, ct),
         _ => (Bast.Application.Production.CommandResult.NotFound, "Ação desconhecida."),
     };
     return outcome.Result switch
@@ -531,6 +532,44 @@ app.MapPost("/api/production/jobs/{id:guid}/{action}", async (Guid id, string ac
         Bast.Application.Production.CommandResult.Done => Results.Ok(new { message = outcome.Message }),
         Bast.Application.Production.CommandResult.NotFound => Results.NotFound(new { problems = new[] { outcome.Message } }),
         _ => Results.BadRequest(new { problems = new[] { outcome.Message } }),
+    };
+});
+
+// Trabalho do Claude (tarefa agendada de produção): jobs autorizados cuja próxima etapa é feita por ele.
+app.MapGet("/api/production/claude", async (IDbContextFactory<BastDbContext> factory, ProductionPipeline pipeline, CancellationToken ct) =>
+{
+    await using var db = await factory.CreateDbContextAsync(ct);
+    var control = await db.ProductionControl.AsNoTracking().FirstOrDefaultAsync(c => c.Id == 1, ct);
+    if (control?.Stopped == true) return Results.Ok(new { stopped = true, work = Array.Empty<object>() });
+    var jobs = await db.ProductionJobs.AsNoTracking().Include(j => j.Steps)
+        .Where(j => j.Authorized && !j.Paused && j.WorkFolder != null && !ProductionRunner.Idle.Contains(j.Status))
+        .OrderBy(j => j.AuthorizedAtUtc).ToListAsync(ct);
+    var work = new List<object>();
+    foreach (var job in jobs)
+    {
+        var next = job.Steps.OrderBy(s => s.Order).FirstOrDefault(s => s.State is not (ProductionStepState.Done or ProductionStepState.Skipped));
+        if (next is null) continue;
+        var definition = pipeline.Steps.First(s => s.Name == next.Name);
+        if (definition.Step is not IExternalStep) continue;
+        work.Add(new
+        {
+            jobId = job.Id, step = next.Name, title = definition.Title, job.SourceFileName, job.SourcePath, job.DurationSeconds,
+            job.WorkFolder, analysisFolder = Path.Combine(job.WorkFolder!, ProductionFolders.Analysis),
+            planFile = SelectionStep.PlanPath(job.WorkFolder!), lastRejection = next.Error,
+        });
+    }
+
+    return Results.Ok(new { stopped = false, work });
+});
+
+app.MapPost("/api/production/jobs/{id:guid}/steps/{step}/complete", async (Guid id, string step, ProductionCommands commands, CancellationToken ct) =>
+{
+    var (result, message, problems) = await commands.CompleteExternalAsync(id, step, ct);
+    return result switch
+    {
+        CommandResult.Done => Results.Ok(new { message }),
+        CommandResult.NotFound => Results.NotFound(new { problems = new[] { message } }),
+        _ => Results.BadRequest(new { message, problems = problems.Count > 0 ? problems : [message] }),
     };
 });
 

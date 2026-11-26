@@ -43,10 +43,30 @@ public sealed class FakeProductionTools : IProductionTools
             "presenca_camera.py" => (arguments[1], """{"seconds":[{"t":0,"face":true},{"t":1,"face":false}],"absent":[{"start":10,"end":14}]}"""),
             "nudez.py" => (arguments[1], Nudity ? """{"flags":[{"start":7,"end":9,"classes":["FEMALE_BREAST_EXPOSED"],"score":0.7}]}""" : """{"flags":[]}"""),
             "sinais.py" => (arguments[3], """{"black":[],"freeze":[],"scene_changes":[3.2,8.1],"voice_peaks":[{"t":4.0,"lufs":-12}]}"""),
+            "render.py" => RenderFake(arguments[0]),
             _ => throw new InvalidOperationException(script),
         };
         File.WriteAllText(output, json);
         return Task.FromResult(new ToolResult(0, "ok", ""));
+    }
+
+    public JsonObject? LastRenderPlan { get; private set; }
+
+    /// <summary>Simula o render.py: grava o vídeo e a EDL com os trechos do plano.</summary>
+    private (string, string) RenderFake(string planPath)
+    {
+        LastRenderPlan = JsonNode.Parse(File.ReadAllText(planPath))!.AsObject();
+        var output = LastRenderPlan["output"]!.ToString();
+        File.WriteAllText(output, "mp4");
+        var hide = LastRenderPlan["cam_hide"]!.AsArray().Select(r => (r![0]!.GetValue<double>(), r[1]!.GetValue<double>())).ToList();
+        var pieces = new JsonArray(LastRenderPlan["segments"]!.AsArray().Select(s =>
+        {
+            var a = s![0]!.GetValue<double>();
+            var b = s[1]!.GetValue<double>();
+            return (JsonNode)new JsonObject { ["inicio"] = a, ["fim"] = b, ["webcam_oculta"] = hide.Any(h => Math.Max(h.Item1, a) < Math.Min(h.Item2, b)) };
+        }).ToArray());
+        var total = pieces.Sum(p => p!["fim"]!.GetValue<double>() - p["inicio"]!.GetValue<double>());
+        return (Path.ChangeExtension(output, null) + ".edl.json", new JsonObject { ["pieces"] = pieces, ["duracao_s"] = total }.ToJsonString());
     }
 }
 

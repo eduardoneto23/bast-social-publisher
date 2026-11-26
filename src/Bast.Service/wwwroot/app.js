@@ -970,6 +970,8 @@ function productionJob(job, runningId) {
             () => call('authorize'), 'primary') : null,
         job.authorized && !finished && !job.paused ? h('button', { class: 'button small', type: 'button', text: 'Pausar', onclick: () => call('pause') }) : null,
         job.paused && !finished ? h('button', { class: 'button small primary', type: 'button', text: 'Retomar', onclick: () => call('resume') }) : null,
+        job.status === 'NeedsHumanReview'
+          ? confirmButton('continue:' + job.id, 'Revisei, continuar', 'Você conferiu o motivo da revisão e quer que o job continue?', () => call('continue'), 'primary') : null,
         !finished ? confirmButton('cancel-job:' + job.id, 'Cancelar', 'Cancelar este job? O original e os arquivos já gerados ficam preservados.', () => call('cancel')) : null,
         job.workFolder ? h('button', { class: 'button small', type: 'button', text: files ? 'Fechar entregas' : 'Ver entregas', onclick: toggleFiles }) : null,
         h('button', { class: 'button small', type: 'button', text: logs ? 'Fechar registro' : 'Ver registro', onclick: toggleLogs }))),

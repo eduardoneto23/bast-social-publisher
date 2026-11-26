@@ -58,7 +58,7 @@ public sealed class ProductionHarness : IDisposable
         Pipeline = new ProductionPipeline(steps);
         Scanner = new RecordingScanner(Env.DbFactory, Env.Workspace, Options, Env.Analyzer, Pipeline, Env.Time, NullLogger<RecordingScanner>.Instance);
         Runner = new ProductionRunner(Env.DbFactory, Pipeline, Options, Disk, Env.Time, NullLogger<ProductionRunner>.Instance);
-        Commands = new ProductionCommands(Env.DbFactory, Runner, Env.Time);
+        Commands = new ProductionCommands(Env.DbFactory, Runner, Pipeline, Env.Time);
     }
 
     public TestEnvironment Env { get; } = new();

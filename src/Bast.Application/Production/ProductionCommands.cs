@@ -15,9 +15,76 @@ public enum CommandResult
 /// Ações do usuário sobre a produção. A autorização vale só para o job indicado e só para as etapas do
 /// pipeline dele: nunca para outros arquivos, outras tarefas ou publicação.
 /// </summary>
-public sealed class ProductionCommands(IDbContextFactory<BastDbContext> factory, ProductionRunner runner, TimeProvider time)
+public sealed class ProductionCommands(IDbContextFactory<BastDbContext> factory, ProductionRunner runner, ProductionPipeline pipeline, TimeProvider time)
 {
     private DateTime Now => time.GetUtcNow().UtcDateTime;
+
+    /// <summary>
+    /// O Claude entregou uma etapa externa (ex.: seleção dos momentos). O resultado é conferido: com problemas, a
+    /// etapa continua esperando, com o motivo; com dúvida de segurança, o job para em revisão humana.
+    /// </summary>
+    public async Task<(CommandResult Result, string Message, IReadOnlyList<string> Problems)> CompleteExternalAsync(Guid jobId, string stepName, CancellationToken ct)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var job = await db.ProductionJobs.Include(j => j.Steps).FirstOrDefaultAsync(j => j.Id == jobId, ct);
+        if (job is null) return (CommandResult.NotFound, "Job não encontrado.", []);
+        var step = job.Steps.FirstOrDefault(s => s.Name == stepName);
+        var definition = pipeline.Steps.FirstOrDefault(s => s.Name == stepName);
+        if (step is null || definition.Step is not IExternalStep external) return (CommandResult.NotFound, "Etapa externa não encontrada.", []);
+        if (step.State == ProductionStepState.Done) return (CommandResult.NotAllowed, "Esta etapa já foi entregue.", []);
+        if (job.WorkFolder is null || job.IsFinished || job.Paused) return (CommandResult.NotAllowed, "O job não está esperando esta etapa.", []);
+        var previous = job.Steps.Where(s => s.Order < step.Order).ToList();
+        if (previous.Any(s => s.State is not (ProductionStepState.Done or ProductionStepState.Skipped)))
+        {
+            return (CommandResult.NotAllowed, "As etapas anteriores ainda não terminaram.", []);
+        }
+
+        var logs = new List<string>();
+        var check = await external.CheckAsync(new StepContext(job, job.WorkFolder, (_, m, _, _) => logs.Add(m)), ct);
+        var now = Now;
+        step.FinishedAtUtc = now;
+        step.Attempts++;
+        if (check.Problems.Count > 0)
+        {
+            step.Error = string.Join(" ", check.Problems);
+            job.CurrentStep = external.WaitingText + " Última entrega recusada: " + step.Error;
+            ProductionJournal.Add(db, job.Id, now, ProductionLogLevel.Warning, stepName, "Entrega recusada: " + step.Error);
+            await db.SaveChangesAsync(ct);
+            return (CommandResult.NotAllowed, "Entrega recusada.", check.Problems);
+        }
+
+        step.State = ProductionStepState.Done;
+        step.Error = null;
+        step.Output = check.Summary;
+        job.UpdatedAtUtc = now;
+        job.LastError = null;
+        ProductionJournal.Add(db, job.Id, now, ProductionLogLevel.Info, stepName, "Entregue pelo Claude e conferido: " + check.Summary);
+        if (check.Review is not null)
+        {
+            job.Status = ProductionStatus.NeedsHumanReview;
+            job.CurrentStep = "Revisão humana: " + check.Review;
+            ProductionJournal.Add(db, job.Id, now, ProductionLogLevel.Warning, stepName, "Parado para revisão humana: " + check.Review);
+            await NotificationOutbox.AddAsync(db, NotificationKind.ProductionAlert, $"production:{job.Id}:review:{stepName}",
+                $"Produção de {job.SourceFileName} precisa da sua revisão: {check.Review}", now, ct);
+        }
+        else
+        {
+            job.CurrentStep = definition.Title + ": concluída";
+        }
+
+        await db.SaveChangesAsync(ct);
+        return (CommandResult.Done, check.Review is null ? "Etapa entregue: " + check.Summary : "Entregue, mas parado para revisão humana.", []);
+    }
+
+    /// <summary>O usuário revisou o que parou o job (cena sensível, alerta) e libera a continuação.</summary>
+    public async Task<(CommandResult Result, string Message)> ContinueAfterReviewAsync(Guid jobId, CancellationToken ct) =>
+        await ChangeAsync(jobId, job =>
+        {
+            if (job.Status != ProductionStatus.NeedsHumanReview) return (CommandResult.NotAllowed, "O job não está em revisão humana.");
+            job.Status = ProductionStatus.Analyzing;
+            job.CurrentStep = "Revisado pelo usuário; continua no próximo ciclo";
+            return (CommandResult.Done, "Revisão registrada: o job continua de onde parou.");
+        }, "revisao", "Revisado e liberado pelo usuário.", ct);
 
     public async Task<(CommandResult Result, string Message)> AuthorizeAsync(Guid jobId, CancellationToken ct) =>
         await ChangeAsync(jobId, job =>

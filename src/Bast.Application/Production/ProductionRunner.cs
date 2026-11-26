@@ -139,6 +139,23 @@ public sealed class ProductionRunner(
                     continue;
                 }
 
+                if (definition.Step is IExternalStep external)
+                {
+                    // Etapa feita pelo Claude (tarefa agendada): o job espera aqui até a etapa ser entregue pela API.
+                    var waiting = external.WaitingText + (pending.Error is null ? "" : $" Última entrega recusada: {pending.Error}");
+                    if (candidate.CurrentStep != waiting)
+                    {
+                        candidate.CurrentStep = waiting;
+                        candidate.Status = definition.Status;
+                        candidate.Progress = 0;
+                        candidate.UpdatedAtUtc = now;
+                        ProductionJournal.Add(db, candidate.Id, now, ProductionLogLevel.Info, pending.Name, external.WaitingText);
+                        await db.SaveChangesAsync(ct);
+                    }
+
+                    continue;
+                }
+
                 if (pending.State == ProductionStepState.Pending && pending.Error is not null && pending.FinishedAtUtc is { } failedAt
                     && now - failedAt < RetryDelay)
                 {
